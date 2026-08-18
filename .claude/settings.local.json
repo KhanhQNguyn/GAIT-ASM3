@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(python -m pytest --collect-only -q part1_gridworld/tests part2_arena/tests)"
+    ]
+  }
+}

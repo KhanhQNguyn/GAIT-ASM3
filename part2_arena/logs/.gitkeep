@@ -1,0 +1,2 @@
+TensorBoard event logs land here, one subdirectory per training run (see
+scripts/train.py's tensorboard_log argument).

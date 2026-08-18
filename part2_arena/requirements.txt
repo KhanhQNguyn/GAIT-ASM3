@@ -1,0 +1,9 @@
+# Part II needs the deep-RL subset of the root requirements.txt.
+pygame>=2.5
+numpy>=1.26
+gymnasium>=0.29
+stable-baselines3>=2.3
+torch>=2.2
+tensorboard>=2.16
+matplotlib>=3.8
+pytest>=8.0

@@ -1,0 +1,16 @@
+{
+  "level_id": 4,
+  "name": "monster_patrol_open",
+  "grid_size": [10, 10],
+  "agent_start": [0, 0],
+  "max_steps": 250,
+  "rocks": [[4, 4], [5, 4], [4, 5], [5, 5]],
+  "fire": [],
+  "apples": [[9, 0], [9, 9], [0, 9]],
+  "key": null,
+  "chest": null,
+  "monsters": [
+    {"start": [4, 2], "move_prob": 0.4},
+    {"start": [6, 7], "move_prob": 0.4}
+  ]
+}

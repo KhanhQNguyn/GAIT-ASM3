@@ -1,0 +1,20 @@
+{
+  "default": {
+    "episodes": 2000,
+    "alpha": 0.1,
+    "gamma": 0.95,
+    "epsilon_start": 1.0,
+    "epsilon_end": 0.05,
+    "epsilon_decay_type": "linear",
+    "max_steps_per_episode": 200
+  },
+  "level_overrides": {
+    "2": {"max_steps_per_episode": 250},
+    "3": {"max_steps_per_episode": 250, "episodes": 3000},
+    "4": {"max_steps_per_episode": 250, "episodes": 3000},
+    "5": {"max_steps_per_episode": 250, "episodes": 3500},
+    "6": {"max_steps_per_episode": 250, "episodes": 3000}
+  },
+  "intrinsic_reward_strength": 0.5,
+  "_notes": "epsilon decays LINEARLY from epsilon_start to epsilon_end over the run (see algorithms.py::linear_epsilon_decay). level_overrides are merged on top of 'default' per level_id. intrinsic_reward_strength is only used when training level 6 with intrinsic reward enabled (see intrinsic.py)."
+}

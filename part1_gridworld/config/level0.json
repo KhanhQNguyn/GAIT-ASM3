@@ -1,0 +1,13 @@
+{
+  "level_id": 0,
+  "name": "apples_right_side",
+  "grid_size": [10, 10],
+  "agent_start": [0, 0],
+  "max_steps": 200,
+  "rocks": [],
+  "fire": [],
+  "apples": [[8, 1], [8, 4], [8, 7], [9, 9]],
+  "key": null,
+  "chest": null,
+  "monsters": []
+}

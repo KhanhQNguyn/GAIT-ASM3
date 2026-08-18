@@ -1,0 +1,14 @@
+{
+  "level_id": 1,
+  "name": "apples_with_hazard_shortcut",
+  "grid_size": [10, 10],
+  "agent_start": [0, 9],
+  "max_steps": 200,
+  "rocks": [[4, 0], [4, 1], [4, 2], [4, 3], [4, 4], [4, 5], [4, 6]],
+  "fire": [[4, 7], [4, 8]],
+  "apples": [[9, 0], [9, 9], [5, 9]],
+  "key": null,
+  "chest": null,
+  "monsters": [],
+  "_design_note": "A wall of rocks blocks row access to the apples except through a 2-tile fire gap at the bottom (rows 7-8) or the long way around row 9. This creates a genuine risk/reward choice: Q-learning's off-policy max-based update tends to still evaluate the fire-adjacent shortcut favorably during exploitation, while SARSA's on-policy update, which incorporates the exploration policy's own risk of stepping into fire, should learn a more conservative path that avoids the gap. Use this level for the Task 2 comparison write-up."
+}

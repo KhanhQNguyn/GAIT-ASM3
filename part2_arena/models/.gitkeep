@@ -1,0 +1,2 @@
+Saved Stable-Baselines3 models land here, named per scripts/train.py's
+model_save_path() convention: style{1,2}_{ppo,dqn}[_curriculum].zip

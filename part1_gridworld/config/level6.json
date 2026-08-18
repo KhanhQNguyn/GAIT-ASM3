@@ -1,0 +1,17 @@
+{
+  "level_id": 6,
+  "name": "intrinsic_reward_arena",
+  "grid_size": [10, 10],
+  "agent_start": [0, 0],
+  "max_steps": 250,
+  "rocks": [[4, 4], [5, 4], [4, 5], [5, 5]],
+  "fire": [],
+  "apples": [[9, 0], [9, 9], [0, 9]],
+  "key": null,
+  "chest": null,
+  "monsters": [
+    {"start": [4, 2], "move_prob": 0.4},
+    {"start": [6, 7], "move_prob": 0.4}
+  ],
+  "_design_note": "Deliberately reuses level4's layout so the ONLY variable between the two training runs compared in the report is whether intrinsic reward is enabled -- isolates the intrinsic reward's effect on exploration/learning speed."
+}

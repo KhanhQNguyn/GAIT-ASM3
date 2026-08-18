@@ -1,0 +1,5 @@
+# Part I only needs the classical-RL subset of the root requirements.txt.
+pygame>=2.5
+numpy>=1.26
+matplotlib>=3.8
+pytest>=8.0

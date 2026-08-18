@@ -1,0 +1,13 @@
+{
+  "level_id": 2,
+  "name": "key_chest_basic",
+  "grid_size": [10, 10],
+  "agent_start": [0, 0],
+  "max_steps": 250,
+  "rocks": [[5, 5]],
+  "fire": [],
+  "apples": [[2, 8], [7, 1], [9, 6]],
+  "key": [3, 3],
+  "chest": [8, 8],
+  "monsters": []
+}

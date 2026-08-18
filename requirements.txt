@@ -1,0 +1,12 @@
+# Project-wide dependencies for both Part I (gridworld) and Part II (arena).
+# Pin versions once you start implementing, to keep training runs reproducible
+# across team members' machines.
+
+pygame>=2.5
+numpy>=1.26
+gymnasium>=0.29
+stable-baselines3>=2.3
+torch>=2.2
+tensorboard>=2.16
+matplotlib>=3.8
+pytest>=8.0
