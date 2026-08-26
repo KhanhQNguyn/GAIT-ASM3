@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import pathlib
 
-# pyrefly: ignore [missing-import]
-from algorithms import (
+from src.algorithms import (
     QTable,
     epsilon_greedy,
     expected_sarsa_update,
@@ -18,11 +17,10 @@ from algorithms import (
     q_learning_update,
     sarsa_update,
 )
-# pyrefly: ignore [missing-import]
-from env import GridWorldEnv
-from intrinsic import IntrinsicRewardTracker
-from logger import EpisodeLogger
-from seed_utils import set_seed
+from src.env import GridWorldEnv
+from src.intrinsic import IntrinsicRewardTracker
+from src.logger import EpisodeLogger
+from src.seed_utils import set_seed
 
 CONFIG_DIR = pathlib.Path(__file__).resolve().parent.parent / "config"
 
