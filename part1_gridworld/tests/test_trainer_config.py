@@ -1,7 +1,7 @@
 """Tests for trainer.load_training_config and its validation."""
 
 import pytest
-from trainer import _validate_config, load_training_config
+from src.trainer import _validate_config, load_training_config
 
 
 def test_load_training_config_merges_overrides():

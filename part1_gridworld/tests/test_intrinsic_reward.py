@@ -5,7 +5,7 @@ per-episode-reset requirements.
 import math
 
 import pytest
-from intrinsic import IntrinsicRewardTracker
+from src.intrinsic import IntrinsicRewardTracker
 
 
 def test_intrinsic_reward_formula_matches_spec():

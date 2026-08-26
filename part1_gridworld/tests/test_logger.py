@@ -2,7 +2,7 @@
 
 import csv
 
-from logger import EpisodeLogger
+from src.logger import EpisodeLogger
 
 
 def test_episode_logger_writes_header_and_rows(tmp_path):

@@ -1,7 +1,7 @@
 """Tests for src/plot_results.py -- CSV loading and training-curve plotting."""
 
-from logger import EpisodeLogger
-from plot_results import load_episode_csv, plot_training_curve
+from src.logger import EpisodeLogger
+from src.plot_results import load_episode_csv, plot_training_curve
 
 
 def test_load_episode_csv_parses_logger_output(tmp_path):
@@ -17,7 +17,7 @@ def test_load_episode_csv_parses_logger_output(tmp_path):
 
 
 def test_plot_training_curve_writes_figure(tmp_path, monkeypatch):
-    monkeypatch.setattr("plot_results.FIGURES_DIR", tmp_path)
+    monkeypatch.setattr("src.plot_results.FIGURES_DIR", tmp_path)
     p1 = tmp_path / "a.csv"
     p2 = tmp_path / "b.csv"
     for p, vals in ((p1, [1, 2, 3]), (p2, [2, 3, 4])):

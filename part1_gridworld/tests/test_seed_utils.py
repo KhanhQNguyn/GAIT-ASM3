@@ -2,7 +2,7 @@
 
 import random
 
-from seed_utils import set_seed
+from src.seed_utils import set_seed
 
 
 def test_set_seed_returns_dedicated_rng_and_seeds_globals():
