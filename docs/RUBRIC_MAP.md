@@ -133,12 +133,16 @@ changed, no level tile-layouts changed. Cross-reference: `docs/AUDIT_main.md`.
 6. **Arena episode length** (`arena/core_env.py`) — `DEFAULT_MAX_STEPS`
    3000 -> 1200 (fallback; authoritative value in `arena.json`), with a
    comment on the timestep-budget reasoning. (AUDIT 5.4)
-7. **Projectile observation** (`arena/obs.py`) — added three
-   `nearest_incoming_projectile_*` features (OBS_DIM 15 -> 18) so the agent
-   can perceive enemy fire, resolving the entities-vs-obs inconsistency;
-   header comment says remove them + the enemy-projectile handling together
-   if the design later drops enemy shooting. `test_obs_shape.py` updated.
-   (AUDIT 5.5)
+7. **Projectile / observation consistency** (`arena/obs.py`, `core_env.py`)
+   — resolved AUDIT 5.5 the *simple* way during Member C implementation:
+   enemies do NOT fire projectiles (they deal contact damage and die on
+   touch), so there is no "incoming projectile" observation feature and
+   OBSERVATION_SPEC stays at the spec-minimum **15**. Only the player
+   shoots; projectile-vs-enemy / projectile-vs-spawner collisions still
+   satisfy the rubric's "projectile collisions" requirement. This also
+   keeps the observation from encoding a strategy (docs/message.txt).
+   (The scaffold pass had briefly added 3 projectile features -> 18; that
+   was reverted.)
 8. **Reward-term TensorBoard logging** — added
    `part2_arena/scripts/callbacks.py::RewardTermLoggingCallback` stub;
    `train.py` docstring wires it into `model.learn(callback=...)`; added

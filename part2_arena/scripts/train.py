@@ -53,7 +53,9 @@ def build_model(algo: str, env, tensorboard_log: str, preset: str = "tuned_v1"):
     raise NotImplementedError
 
 
-def model_save_path(style: int, algo: str, curriculum: str, preset: str = "tuned_v1") -> pathlib.Path:
+def model_save_path(
+    style: int, algo: str, curriculum: str, preset: str = "tuned_v1"
+) -> pathlib.Path:
     suffix = "_curriculum" if curriculum == "on" else ""
     # Preset is part of the filename so a hyperparameter sweep does not
     # overwrite its own earlier runs.

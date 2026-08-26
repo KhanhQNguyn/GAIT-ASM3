@@ -49,7 +49,9 @@ def read_all_term_scalars(log_dir: pathlib.Path) -> dict:
     raise NotImplementedError
 
 
-def plot_stacked_area(term_series: dict, output_name: str = "reward_decomposition.png") -> pathlib.Path:
+def plot_stacked_area(
+    term_series: dict, output_name: str = "reward_decomposition.png"
+) -> pathlib.Path:
     """Render a stacked-area chart of each reward term's contribution over
     training steps, save to FIGURES_DIR / output_name.
 

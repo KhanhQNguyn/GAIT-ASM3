@@ -33,8 +33,11 @@ class ControlStyle2(IntEnum):
 def action_enum_for_style(style: int) -> type[IntEnum]:
     """Return ControlStyle1 or ControlStyle2 for style in {1, 2}.
 
-    TODO: implement (simple dict/if lookup); raise ValueError for anything
-    else so a typo'd --style flag fails loudly instead of silently training
-    the wrong action set.
+    Raises ValueError for anything else so a typo'd --style flag fails
+    loudly instead of silently training the wrong action set.
     """
-    raise NotImplementedError
+    if style == 1:
+        return ControlStyle1
+    if style == 2:
+        return ControlStyle2
+    raise ValueError(f"control style must be 1 or 2, got {style!r}")

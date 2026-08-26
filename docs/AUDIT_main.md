@@ -18,8 +18,9 @@ changes, no level-layout changes) addressed most of the structural gaps and defe
 decisions below. See `docs/RUBRIC_MAP.md` "Round-3 scaffold fixes" for the itemised list.
 
 **Resolved at scaffold level:** §5.2 (state encoding decided), §5.3 (save/load stubs +
-`models/`), §5.4 (`DEFAULT_MAX_STEPS` 3000→1200 + config), §5.5 (3 projectile obs features
-added), §5.6 (`part2_arena/config/arena.json` + `hyperparams.json` + `--config`), §5.7
+`models/`), §5.4 (`DEFAULT_MAX_STEPS` 3000→1200 + config), §5.5 (later resolved in Member C
+implementation: enemies don't shoot, so no projectile obs feature — OBSERVATION_SPEC stays at
+15), §5.6 (`part2_arena/config/arena.json` + `hyperparams.json` + `--config`), §5.7
 (`RewardTermLoggingCallback` stub + `tbparse`), §5.9 (`--fps` + pacing note), §6.2/§6.3
 (`test_level_configs.py` stubs), §6.4 (monster occupancy decided), §6.5 (`make_env`), §6.7
 (`compare_q_vs_sarsa.py`), §6.8 (`plot_death_rate` stub), §7.1 (`SHOT_NO_TARGET_RADIUS`
