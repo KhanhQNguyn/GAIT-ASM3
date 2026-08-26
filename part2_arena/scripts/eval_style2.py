@@ -12,7 +12,13 @@ from __future__ import annotations
 import argparse
 import pathlib
 
+from stable_baselines3 import DQN, PPO
+
+from arena.gym_adapter import ArenaGymEnv
+
 MODELS_DIR = pathlib.Path(__file__).resolve().parent.parent / "models"
+
+CONTROL_STYLE = 2
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,10 +30,39 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """TODO: mirror eval_style1.main() exactly, but with control_style=2
-    and loading MODELS_DIR / f"style2_{args.algo}...".
-    """
-    raise NotImplementedError
+    args = parse_args()
+
+    suffix = "_curriculum" if args.curriculum == "on" else ""
+    model_path = MODELS_DIR / f"style{CONTROL_STYLE}_{args.algo}{suffix}"
+    model_cls = PPO if args.algo == "ppo" else DQN
+    model = model_cls.load(model_path)
+
+    env = ArenaGymEnv(control_style=CONTROL_STYLE, render_mode="human")
+
+    for episode in range(1, args.episodes + 1):
+        obs, _info = env.reset()
+        env.render()
+        total_reward = 0.0
+        steps = 0
+        terminated = False
+        truncated = False
+
+        while not (terminated or truncated):
+            action, _state = model.predict(obs, deterministic=True)
+            obs, reward, terminated, truncated, info = env.step(action)
+            env.render()
+            total_reward += reward
+            steps += 1
+
+        outcome = "died" if terminated else "survived to step limit"
+        final_phase = env.core_env.state.phase if env.core_env.state is not None else None
+        print(
+            f"[episode {episode}/{args.episodes}] steps={steps} "
+            f"return={total_reward:.2f} outcome={outcome} "
+            f"final_phase={final_phase}"
+        )
+
+    env.close()
 
 
 if __name__ == "__main__":
