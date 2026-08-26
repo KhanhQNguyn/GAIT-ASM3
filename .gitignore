@@ -1,4 +1,11 @@
 # ============================================================================
+# Project-internal docs and local tool settings (never pushed to the shared repo)
+# ============================================================================
+docs/
+.claude/
+spec_docs/*
+
+# ============================================================================
 # Python Core & Byte-compiled files
 # ============================================================================
 __pycache__/
@@ -93,3 +100,6 @@ Thumbs.db
 
 *.xml
 *.md
+!README.md
+!CLAUDE.md
+!report/report_template.md

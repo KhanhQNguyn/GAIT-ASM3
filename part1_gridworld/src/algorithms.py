@@ -79,7 +79,10 @@ def linear_epsilon_decay(
 
     TODO: implement the linear interpolation.
     """
-    raise NotImplementedError
+    if total_episodes <= 1:
+        return epsilon_start
+    frac = episode / (total_episodes - 1)
+    return epsilon_start + (epsilon_end - epsilon_start) * frac
 
 
 def epsilon_greedy(q_values: list[float], epsilon: float, rng: random.Random) -> int:
@@ -90,9 +93,14 @@ def epsilon_greedy(q_values: list[float], epsilon: float, rng: random.Random) ->
     TODO:
       - with probability epsilon, return a uniformly random action index.
       - otherwise, find all indices tied for max(q_values) and pick one of
-        them uniformly at random via `rng`.
+            them uniformly at random via `rng`.
     """
-    raise NotImplementedError
+    n_actions = len(q_values)
+    if rng.random() < epsilon:
+        return rng.randrange(n_actions)
+    max_q = max(q_values)
+    tied = [i for i, q in enumerate(q_values) if q == max_q]
+    return rng.choice(tied)
 
 
 def q_learning_update(
@@ -113,7 +121,12 @@ def q_learning_update(
 
     TODO: implement, mutating q_table in place.
     """
-    raise NotImplementedError
+    q = q_table[state]
+    if done:
+        target = reward
+    else:
+        target = reward + gamma * max(q_table[next_state])
+    q[action] += alpha * (target - q[action])
 
 
 def sarsa_update(
@@ -136,7 +149,12 @@ def sarsa_update(
 
     TODO: implement, mutating q_table in place.
     """
-    raise NotImplementedError
+    q = q_table[state]
+    if done:
+        target = reward
+    else:
+        target = reward + gamma * q_table[next_state][next_action]
+    q[action] += alpha * (target - q[action])
 
 
 def expected_sarsa_update(
@@ -162,4 +180,12 @@ def expected_sarsa_update(
 
     TODO: implement, mutating q_table in place.
     """
-    raise NotImplementedError
+    q = q_table[state]
+    if done:
+        target = reward
+    else:
+        n_actions = len(q_table[next_state])
+        q_next = q_table[next_state]
+        expectation = (epsilon / n_actions) * sum(q_next) + (1 - epsilon) * max(q_next)
+        target = reward + gamma * expectation
+    q[action] += alpha * (target - q[action])
