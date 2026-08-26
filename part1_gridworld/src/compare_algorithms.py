@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pathlib
 
-from trainer import train
+from src.trainer import train
 
 COMPARISON_LEVEL_ID = 4  # reuse the level4 hazard layout; change if level5 fits better
 FIGURES_DIR = pathlib.Path(__file__).resolve().parent.parent.parent / "report" / "figures"

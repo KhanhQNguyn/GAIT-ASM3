@@ -16,8 +16,7 @@ from __future__ import annotations
 
 import pathlib
 
-# pyrefly: ignore [missing-import]
-from trainer import train
+from src.trainer import train
 
 COMPARISON_LEVEL_ID = 1  # fixed: level1 is the Task-2 hazard-shortcut layout
 FIGURES_DIR = pathlib.Path(__file__).resolve().parent.parent.parent / "report" / "figures"
