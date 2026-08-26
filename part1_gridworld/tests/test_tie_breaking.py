@@ -5,7 +5,7 @@ to point a marker at directly as evidence for that specific rubric line.
 
 import random
 
-from algorithms import epsilon_greedy
+from src.algorithms import epsilon_greedy
 
 
 def test_tied_best_actions_each_selected_with_nonzero_frequency():

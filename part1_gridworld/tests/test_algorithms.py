@@ -7,7 +7,7 @@ not just "seems to learn something."
 import random
 
 import pytest
-from algorithms import (
+from src.algorithms import (
     QTable,
     epsilon_greedy,
     expected_sarsa_update,
