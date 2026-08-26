@@ -48,18 +48,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--style", type=int, choices=[1, 2], default=1)
     parser.add_argument("--algo", type=str, choices=["ppo", "dqn"], default="ppo")
     parser.add_argument("--curriculum", type=str, choices=["on", "off"], default="off")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="tuned_v1",
+        help="hyperparameter preset the run was trained with (part of its TensorBoard run name)",
+    )
     return parser.parse_args()
 
 
-def find_log_dir(style: int, algo: str, curriculum: str) -> pathlib.Path:
+def find_log_dir(style: int, algo: str, curriculum: str, preset: str = "tuned_v1") -> pathlib.Path:
     """Locate the most recent TensorBoard run directory for (style, algo,
-    curriculum), matching the tb_log_name train.py's main() passes to
-    model.learn() (e.g. "style1_ppo", "style2_dqn_curriculum"), including
-    SB3's auto-appended "_N" run suffix. Picks the highest-numbered (most
-    recent) run if train.py was run more than once for this combination.
+    preset, curriculum), matching the tb_log_name train.py's main() passes
+    to model.learn() (e.g. "style1_ppo_tuned_v1",
+    "style2_dqn_tuned_v1_curriculum"), including SB3's auto-appended "_N"
+    run suffix. Picks the highest-numbered (most recent) run if train.py
+    was run more than once for this exact combination.
     """
     suffix = "_curriculum" if curriculum == "on" else ""
-    prefix = f"style{style}_{algo}{suffix}_"
+    prefix = f"style{style}_{algo}_{preset}{suffix}_"
     candidates = sorted(
         (p for p in LOGS_DIR.glob(f"{prefix}*") if p.is_dir()),
         key=lambda p: int(p.name.rsplit("_", 1)[-1]) if p.name.rsplit("_", 1)[-1].isdigit() else -1,
@@ -68,7 +75,7 @@ def find_log_dir(style: int, algo: str, curriculum: str) -> pathlib.Path:
         raise FileNotFoundError(
             f"No TensorBoard run directory found under {LOGS_DIR} matching '{prefix}*' "
             f"-- run scripts/train.py --style {style} --algo {algo} "
-            f"--curriculum {curriculum} first."
+            f"--config {preset} --curriculum {curriculum} first."
         )
     return candidates[-1]
 
@@ -128,8 +135,8 @@ def plot_stacked_area(
 
 if __name__ == "__main__":
     args = parse_args()
-    log_dir = find_log_dir(args.style, args.algo, args.curriculum)
+    log_dir = find_log_dir(args.style, args.algo, args.curriculum, args.config)
     term_series = read_all_term_scalars(log_dir)
-    output_name = f"reward_decomposition_style{args.style}_{args.algo}.png"
+    output_name = f"reward_decomposition_style{args.style}_{args.algo}_{args.config}.png"
     output_path = plot_stacked_area(term_series, output_name)
     print(f"Saved reward decomposition plot to: {output_path}")

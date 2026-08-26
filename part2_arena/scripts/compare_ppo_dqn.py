@@ -44,23 +44,36 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--style", type=int, choices=[1, 2], default=1)
     parser.add_argument("--timesteps", type=int, default=300_000)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="tuned_v1",
+        help="hyperparameter preset (same one, for both algos) from config/hyperparams.json",
+    )
     return parser.parse_args()
 
 
-def train_both(style: int, timesteps: int, seed: int) -> dict[str, pathlib.Path]:
+def train_both(
+    style: int, timesteps: int, seed: int, preset: str = "tuned_v1"
+) -> dict[str, pathlib.Path]:
     """Run train.py's build_model()/training path twice (algo="ppo" and
-    algo="dqn") with identical env/timesteps/seed, returning each run's
-    TensorBoard log directory (SB3's model.logger.dir) for
+    algo="dqn") with identical env/timesteps/seed/preset, returning each
+    run's TensorBoard log directory (SB3's model.logger.dir) for
     read_tensorboard_scalars(). Reuses train.build_model() rather than
     reimplementing training here, so this is a genuine like-for-like
-    ablation against whatever hyperparameters train.py actually uses.
+    ablation against whatever hyperparameters config/hyperparams.json's
+    [algo][preset] block actually specifies for each algorithm.
     """
     log_dirs: dict[str, pathlib.Path] = {}
     for algo in ("ppo", "dqn"):
         env = Monitor(ArenaGymEnv(control_style=style))
-        model = train.build_model(algo, env, tensorboard_log=str(LOGS_DIR), seed=seed)
-        model.learn(total_timesteps=timesteps, tb_log_name=f"ablation_style{style}_{algo}")
-        model.save(train.MODELS_DIR / f"ablation_style{style}_{algo}")
+        model = train.build_model(
+            algo, env, tensorboard_log=str(LOGS_DIR), preset=preset, seed=seed
+        )
+        model.learn(
+            total_timesteps=timesteps, tb_log_name=f"ablation_style{style}_{algo}_{preset}"
+        )
+        model.save(train.MODELS_DIR / f"ablation_style{style}_{algo}_{preset}")
         log_dirs[algo] = pathlib.Path(model.logger.dir)
     return log_dirs
 
@@ -101,7 +114,7 @@ def plot_comparison(ppo_series, dqn_series, output_name: str = "ppo_vs_dqn.png")
 
 if __name__ == "__main__":
     args = parse_args()
-    log_dirs = train_both(args.style, args.timesteps, args.seed)
+    log_dirs = train_both(args.style, args.timesteps, args.seed, args.config)
     ppo_series = read_tensorboard_scalars(log_dirs["ppo"])
     dqn_series = read_tensorboard_scalars(log_dirs["dqn"])
     output_path = plot_comparison(ppo_series, dqn_series, f"ppo_vs_dqn_style{args.style}.png")
