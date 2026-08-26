@@ -1,0 +1,16 @@
+# Coding Agent — Lessons from Previous RL Assignment Feedback
+
+The following points come from feedback on an older assignment with similar RL requirements. Use them as **guidelines for the current assignment**, not as additional requirements.
+
+* **Follow the assignment specification closely.** Do not change required rewards, rules, or behaviour without a clear justification.
+* **Keep the RL design simple.** Do not add unnecessary rewards, penalties, heuristics, or observation features just to make the system more sophisticated.
+* **Do not encode the desired strategy directly into observations or rewards.** The agent should actually learn the behaviour rather than being given the solution through handcrafted features.
+* **Keep reward shaping reasonable.** Avoid having too many reward/penalty terms or extremely large penalties that can dominate the learning signal.
+* **Be aware of reward hacking.** Ask whether the agent could maximise a reward without actually achieving the intended objective.
+* **Justify non-obvious design decisions.** If we deviate from the obvious/simple implementation, explain why it is necessary and what evidence supports it.
+* **Do not make claims without evidence.** If we claim that the agent learned something, improved, or performed better, provide appropriate evidence.
+* **Prefer direct behavioural evidence over indirect evidence.** For example, an actual rollout/trajectory is stronger evidence of learned behaviour than only showing a reward curve.
+* **Quantify important conclusions where possible.** Use metrics such as success rate, average steps, reward, or other metrics relevant to the current assignment.
+* **If comparing methods, make the comparison explicit.** Do not conclude that one method is better merely from a subjective interpretation of graphs.
+* **Make required demonstrations explicit.** If something needs to be demonstrated, show it clearly rather than only describing that it exists.
+* **Main principle:** keep the implementation **simple, justified, and easy to prove**, rather than adding complexity that is difficult to evaluate.
