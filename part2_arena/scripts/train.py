@@ -161,7 +161,12 @@ def main() -> None:
     )
     callback = CallbackList([RewardBreakdownCallback(), eval_callback])
 
-    model.learn(total_timesteps=args.timesteps, callback=callback)
+    # tb_log_name encodes style/algo/curriculum so each run gets its own
+    # discoverable TensorBoard subfolder (SB3 auto-appends "_1", "_2", ... on
+    # repeat runs) -- scripts/compare_ppo_dqn.py and
+    # scripts/plot_reward_decomposition.py locate the right run by this name.
+    tb_log_name = f"style{args.style}_{args.algo}{'_curriculum' if curriculum_enabled else ''}"
+    model.learn(total_timesteps=args.timesteps, callback=callback, tb_log_name=tb_log_name)
     model.save(save_path)
 
     print(f"Saved final model to: {save_path}")
