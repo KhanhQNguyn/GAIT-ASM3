@@ -21,7 +21,7 @@ import numpy as np
 from gymnasium import spaces
 
 from arena.actions import action_enum_for_style
-from arena.core_env import ARENA_HEIGHT, ARENA_WIDTH, ArenaCoreEnv
+from arena.core_env import ArenaCoreEnv
 from arena.obs import OBS_DIM
 
 
@@ -32,9 +32,16 @@ class ArenaGymEnv(gym.Env):
 
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, control_style: int, curriculum_enabled: bool = False, render_mode: str | None = None):
+    def __init__(
+        self,
+        control_style: int,
+        curriculum_enabled: bool = False,
+        render_mode: str | None = None,
+    ):
         super().__init__()
-        self.core_env = ArenaCoreEnv(control_style=control_style, curriculum_enabled=curriculum_enabled)
+        self.core_env = ArenaCoreEnv(
+            control_style=control_style, curriculum_enabled=curriculum_enabled
+        )
         self.render_mode = render_mode
         self._renderer = None  # created lazily in render() if render_mode == "human"
 
@@ -51,33 +58,44 @@ class ArenaGymEnv(gym.Env):
         )
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):
-        """Gymnasium reset contract: return (observation, info).
-
-        TODO: implement, calling self.core_env.reset() and wrapping its
-        return value as (obs, {}).
-        """
-        raise NotImplementedError
+        """Gymnasium reset contract: return (observation, info)."""
+        super().reset(seed=seed)  # seeds self.np_random per the gymnasium convention
+        obs = self.core_env.reset(seed=seed)
+        return obs, {}
 
     def step(self, action: int):
         """Gymnasium step contract: return
         (observation, reward, terminated, truncated, info).
 
-        TODO: call self.core_env.step(action) to get (obs, reward, done,
-        info), then split done into terminated = info["died"] and
-        truncated = info["truncated"] (exactly one of these should be True
-        when done is True; if core_env didn't set truncated explicitly,
-        treat it as terminated=done, truncated=False and revisit once
-        core_env.py is implemented).
+        core_env returns the legacy (obs, reward, done, info); we split
+        `done` using the flags core_env already put in `info`:
+            terminated = the player died
+            truncated  = the step limit was hit without dying
+        `and not terminated` guarantees the two are never both True.
         """
-        raise NotImplementedError
+        obs, reward, _done, info = self.core_env.step(int(action))
+        terminated = bool(info["died"])
+        truncated = bool(info["truncated"]) and not terminated
+        return obs, float(reward), terminated, truncated, info
 
     def render(self):
-        """TODO: lazily create an arena.render_pygame.ArenaRenderer on
-        first call (only if render_mode == "human"), then delegate to
-        self.core_env.render(self._renderer).
+        """Lazily create an ArenaRenderer on first call (only when
+        render_mode == "human"), then delegate to core_env.render().
         """
-        raise NotImplementedError
+        if self.render_mode != "human":
+            return None
+        if self._renderer is None:
+            from arena.render_pygame import ArenaRenderer
+
+            self._renderer = ArenaRenderer(
+                int(self.core_env.arena_width),
+                int(self.core_env.arena_height),
+                caption=f"Arena - control style {self.core_env.control_style}",
+            )
+        self.core_env.render(self._renderer)
+        return None
 
     def close(self):
-        """TODO: close self._renderer if it was created."""
-        raise NotImplementedError
+        if self._renderer is not None:
+            self._renderer.close()
+            self._renderer = None
