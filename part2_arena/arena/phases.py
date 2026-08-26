@@ -40,12 +40,32 @@ class PhaseManager:
         """Return the (possibly curriculum-adjusted) difficulty parameters
         for the given phase number.
 
-        TODO: implement a base difficulty curve (e.g. enemy_speed and
-        spawn frequency increasing with phase, num_spawners increasing
-        every couple of phases), and when self.curriculum_enabled, scale
-        early phases down toward an easier starting point that converges to
-        the same curve by some target phase (document the ramp schedule
-        here once decided, since the report needs to describe it).
+        DECIDED base curve (parameters from config/arena.json -> phase_curve):
+            enemy_speed          = base_enemy_speed
+                                   + phase * enemy_speed_gain_per_phase
+            enemy_spawn_interval = max(min_spawn_interval_steps,
+                                       base_spawn_interval_steps
+                                       - phase * spawn_interval_decay_per_phase)
+            num_spawners         = base_num_spawners
+                                   + phase // extra_spawner_every_n_phases
+
+        DECIDED curriculum ramp (config/arena.json -> curriculum), applied
+        only when self.curriculum_enabled:
+            Let R = curriculum.enabled_ramp_phases (default 3),
+                s0 = curriculum.start_difficulty_fraction (default 0.5).
+            For phase < R, scale the *difficulty-increasing* deltas by
+                frac = s0 + (1 - s0) * (phase / R)
+            i.e. enemy_speed and (base - interval) and the num_spawners
+            increment are each multiplied by `frac`; for phase >= R the
+            curve is identical to the base curve. So a curriculum run and a
+            non-curriculum run converge to the same difficulty by phase R
+            and differ only in how gently they get there -- which is exactly
+            the comparison creativity hook (c) / report section 8 needs.
+
+        TODO: implement the two formulas above (read the config once, cache
+        it on the instance). Do not invent a different schedule -- if it
+        changes, change it here AND in config/arena.json's _notes AND in the
+        report together.
         """
         raise NotImplementedError
 

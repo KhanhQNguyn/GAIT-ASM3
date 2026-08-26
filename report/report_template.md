@@ -23,7 +23,10 @@ what makes this feel like a real-time arena rather than a tile grid.
 ## 2. Observation Design (~1 page)
 
 TODO: table of every feature in the Part II observation vector, its index,
-its meaning, and why it was included. Reference `part2_arena/arena/obs.py`.
+its meaning, and why it was included. Reference `part2_arena/arena/obs.py`
+(`OBSERVATION_SPEC`, currently 18 features). Explain the three
+`nearest_incoming_projectile_*` features explicitly: enemies fire, so the
+agent needs to perceive incoming projectiles to learn evasion.
 
 ## 3. Reward Design (~1 page)
 
@@ -31,6 +34,16 @@ TODO: table of every reward term (Part I: apple/key/chest/death; Part II:
 `rewards_config.py` constants) with justification for each, especially any
 optional shaping terms. Pull directly from
 `report/figures/reward_tables.md` (generated).
+
+Two decisions to state and justify here:
+  - Part I `REWARD_DEATH`: currently 0.0. If the SARSA-vs-Q-learning
+    conservatism comparison (section 5 / Task 2) shows no meaningful
+    difference on level1, a small negative value is the fix -- decide,
+    change the constant, re-run `scripts/generate_report_tables.py`, and
+    justify it here. (See docs/AUDIT_main.md 5.1.)
+  - Part II `R_APPROACH_NEAREST_ENEMY` shaping term: state whether it was
+    kept/removed/tuned and describe the gating (delta-only, outside-range,
+    per-episode cap) that keeps it from dominating the objective.
 
 ## 4. Hyperparameter Exploration (~1-1.5 pages)
 

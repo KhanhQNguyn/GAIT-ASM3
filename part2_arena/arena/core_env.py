@@ -30,9 +30,14 @@ from arena.rewards import compute_reward
 
 CONFIG_DIR = pathlib.Path(__file__).resolve().parent.parent / "config"
 
+# Fallback constants. The authoritative values live in config/arena.json
+# (CONFIG_DIR / "arena.json"); __init__ should load that file and fall back
+# to these only if it is missing. DEFAULT_MAX_STEPS was cut from 3000 to
+# 1200 so a ~300k-timestep training run sees a usable number of episode
+# terminations (see docs/AUDIT_main.md 5.4).
 ARENA_WIDTH = 960
 ARENA_HEIGHT = 680
-DEFAULT_MAX_STEPS = 3000
+DEFAULT_MAX_STEPS = 1200
 
 
 class ArenaCoreEnv:
@@ -48,7 +53,12 @@ class ArenaCoreEnv:
         self.action_enum = action_enum_for_style(control_style)
         self.phase_manager = PhaseManager(curriculum_enabled=curriculum_enabled)
         self.state: ArenaState | None = None
-        # TODO: any other fixed setup (max_steps, RNG, etc.)
+        # TODO: load config/arena.json (CONFIG_DIR / "arena.json") and set
+        # self.max_steps, self.arena_width/height, player/enemy/spawner
+        # params, and the observation.num_active_enemies_max from it; fall
+        # back to the module constants above if the file is absent. Also
+        # seed an RNG here (scripts/seed_utils.set_seed handles the global
+        # seeding; this is the env-local generator).
 
     def reset(self):
         """Reset to a fresh episode: new Player at a default position,

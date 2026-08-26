@@ -48,12 +48,16 @@ tabular Q-learning/SARSA converge quickly.
   apples collected.
 - After the agent's move, each monster independently has `move_prob` (0.4)
   chance to take one random step among its currently unblocked directions.
+- Only rocks and grid edges block monster movement. Monsters do NOT block
+  each other and MAY share a tile (e.g. level5 starts two monsters in an
+  adjacent pair inside a narrow gap). A monster with zero unblocked
+  directions simply does not move that turn.
 
 ## Level -> task mapping
 
 | File | Task | Notes |
 |---|---|---|
-| level0.json | Task 1 (Q-learning) | apples only, right side |
+| level0.json | Task 1 (Q-learning) | apples only, right side. Note: 4 apples => "learned shortest-path policy" evidence means an efficient *collection route* (a visiting order), not a single source->goal shortest path; phrase it that way in the report/video. |
 | level1.json | Task 2 (SARSA) | apples only, different layout, includes hazards for a meaningful conservative-behavior comparison |
 | level2.json | Task 3 | multiple apples + key + chest |
 | level3.json | Task 3 | multiple apples + key + chest, different layout |

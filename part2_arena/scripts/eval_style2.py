@@ -19,13 +19,19 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--algo", type=str, choices=["ppo", "dqn"], default="ppo")
     parser.add_argument("--curriculum", type=str, choices=["on", "off"], default="off")
+    parser.add_argument("--config", type=str, default="tuned_v1",
+                        help="hyperparameter preset the model was trained with (part of its filename)")
     parser.add_argument("--episodes", type=int, default=5)
+    parser.add_argument("--fps", type=int, default=60,
+                        help="frame-rate cap for the render loop so playback is watchable / recordable")
     return parser.parse_args()
 
 
 def main() -> None:
     """TODO: mirror eval_style1.main() exactly, but with control_style=2
-    and loading MODELS_DIR / f"style2_{args.algo}...".
+    and loading MODELS_DIR / f"style2_{args.algo}_{args.config}"
+    (+ "_curriculum" if args.curriculum == "on"). Same
+    pygame.time.Clock().tick(args.fps) pacing in the render loop.
     """
     raise NotImplementedError
 

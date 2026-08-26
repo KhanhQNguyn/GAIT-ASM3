@@ -42,6 +42,17 @@ def load_training_config(level_id: int) -> dict:
     raise NotImplementedError
 
 
+def make_env(level_id: int) -> GridWorldEnv:
+    """Single place that turns a level_id into a GridWorldEnv, so train(),
+    evaluate_policy()'s callers (main.py), and the comparison scripts all
+    construct the environment identically (path convention:
+    CONFIG_DIR / f"level{level_id}.json").
+
+    TODO: implement (return GridWorldEnv(CONFIG_DIR / f"level{level_id}.json")).
+    """
+    raise NotImplementedError
+
+
 def train(
     level_id: int,
     algorithm: str,
@@ -51,6 +62,11 @@ def train(
     csv_log_path: str | pathlib.Path | None = None,
 ) -> QTable:
     """Run one full training session and return the learned QTable.
+
+    Build the environment via make_env(level_id) (do not construct
+    GridWorldEnv directly here). Callers that want to replay the policy
+    later persist the returned QTable themselves via
+    algorithms.save_qtable(q, algorithms.qtable_path(level_id, algorithm)).
 
     algorithm must be one of "q_learning", "sarsa", "expected_sarsa".
     use_intrinsic_reward should only meaningfully be used with level 6 (see

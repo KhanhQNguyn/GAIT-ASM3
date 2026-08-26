@@ -12,6 +12,15 @@ from arena.entities import ArenaState
 
 # Index -> (name, description). Keep this in sync with build_observation's
 # actual output order -- tests/test_obs_shape.py checks the length matches.
+#
+# The three nearest_incoming_projectile_* features exist because
+# arena/entities.py's Projectile has owner="enemy" and core_env.step()
+# resolves projectile-vs-player collisions: enemies can shoot, so the agent
+# must be able to perceive incoming fire or it cannot learn to dodge it
+# (resolves the inconsistency in docs/AUDIT_main.md 5.5). If the final
+# design decides enemies do NOT shoot, remove these three entries AND the
+# enemy-projectile handling in core_env.py together.
+#
 # Convention: ALL features are normalized to [-1, 1]. Features that are
 # naturally in [0, 1] (e.g. fractions, distances) are linearly rescaled to
 # [-1, 1] via x_normalized = 2 * x_unit - 1. sin/cos features are already
@@ -31,8 +40,16 @@ OBSERVATION_SPEC: list[tuple[str, str]] = [
     ("nearest_spawner_direction_sin", "sin(angle to nearest active spawner), in [-1, 1]"),
     ("nearest_spawner_direction_cos", "cos(angle to nearest active spawner), in [-1, 1]"),
     ("current_phase_frac", "Current phase / max expected phase, rescaled [0,1] -> [-1,1]"),
-    ("num_active_enemies_frac", "Active enemies / assumed max clipped [0,1], rescaled->[-1,1]"),
+    ("num_active_enemies_frac", "Active enemies / NUM_ACTIVE_ENEMIES_MAX, clipped [0,1], rescaled->[-1,1]"),
+    ("nearest_incoming_projectile_distance", "Dist to nearest enemy-owned projectile / arena diagonal, rescaled [0,1]->[-1,1]; +1 (max) if none"),
+    ("nearest_incoming_projectile_direction_sin", "sin(angle to nearest enemy projectile) relative to player, in [-1, 1]; 0 if none"),
+    ("nearest_incoming_projectile_direction_cos", "cos(angle to nearest enemy projectile) relative to player, in [-1, 1]; 1 if none"),
 ]
+
+# Normalisation divisor for num_active_enemies_frac. Authoritative value is
+# config/arena.json -> observation.num_active_enemies_max; kept here as the
+# fallback (see docs/AUDIT_main.md 7.4).
+NUM_ACTIVE_ENEMIES_MAX = 12
 
 OBS_DIM = len(OBSERVATION_SPEC)
 

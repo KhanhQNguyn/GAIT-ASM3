@@ -37,12 +37,20 @@ agent reliably prioritizes survival."""
 # --- Optional shaping terms (<= 2, must be justified) ---
 
 R_APPROACH_NEAREST_ENEMY: float = 0.01
-"""TODO justify or remove: small per-step shaping reward for reducing
-distance to the nearest enemy, intended to speed up early training before
-the agent has discovered that engaging enemies is valuable at all. Must be
-small relative to R_KILL_ENEMY or the agent will loiter near enemies
-without shooting. Document the final decision (kept/removed/tuned) in
-report/report_template.md section 3."""
+"""Small per-step shaping reward for reducing distance to the nearest enemy,
+to speed up early training before the agent discovers that engaging enemies
+is valuable at all. Document the final decision (kept/removed/tuned) in
+report/report_template.md section 3.
+
+REQUIRED implementation shape (not optional -- an ungated flat 0.01/step
+over a 1200-step episode is +12, which rivals R_KILL_ENEMY=5 and lets the
+agent farm this term by loitering, see docs/AUDIT_main.md 5.8):
+  - reward only the per-step DECREASE in distance to the nearest enemy
+    (distance_delta < 0), scaled by this constant -- not mere proximity;
+  - apply it ONLY while the nearest enemy is outside weapon/engage range
+    (so it stops paying out once the agent should be shooting, not chasing);
+  - cap the cumulative per-episode contribution of this term (e.g. to
+    <= R_KILL_ENEMY) so it can never dominate the real objective."""
 
 R_SHOOT_WHILE_NO_TARGET: float = 0.0
 """TODO justify or remove: placeholder for a potential small penalty on
@@ -57,8 +65,10 @@ is not considered a valid target for R_SHOOT_WHILE_NO_TARGET purposes.
 A shot fired when the nearest enemy is farther than this value sets
 "shot_fired_with_no_target" in step_events (see rewards.py).
 
-TODO: tune once arena scale is confirmed. The placeholder value of 150.0 is
-roughly 0.3 × the diagonal of a 400×400 arena
-(diagonal ≈ 566 units → 0.3 × 566 ≈ 170; 150 is a conservative starting
-point). Adjust to match the actual ARENA_WIDTH / ARENA_HEIGHT values in
-core_env.py once those are implemented."""
+The arena is 960×680 (core_env.ARENA_WIDTH/HEIGHT), diagonal ≈ 1173 world
+units. 150.0 is therefore ~13% of the diagonal -- deliberately tight: a
+shot only counts as "on target" when an enemy is fairly close, so the
+R_SHOOT_WHILE_NO_TARGET penalty discourages long-range spray without
+punishing reasonable mid-range shots. TODO: tune against training behaviour
+(and against the real weapon/projectile range in config/arena.json) and
+record the final value in report section 3."""

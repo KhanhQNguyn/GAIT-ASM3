@@ -8,5 +8,6 @@ gymnasium>=0.29
 stable-baselines3>=2.3
 torch>=2.2
 tensorboard>=2.16
+tbparse>=0.0.8
 matplotlib>=3.8
 pytest>=8.0

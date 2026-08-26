@@ -33,7 +33,10 @@ def test_observation_includes_all_required_features():
     """obs.OBSERVATION_SPEC must include, at minimum, player position,
     player velocity, distance+direction to nearest enemy, distance+
     direction to nearest spawner, player health, and current phase --
-    cross-check the spec names against OBSERVATION_SPEC's entries.
+    cross-check the spec names against OBSERVATION_SPEC's entries. It also
+    carries three nearest_incoming_projectile_* features (see obs.py's
+    header comment); assert those are present too, and that
+    obs.OBS_DIM == len(OBSERVATION_SPEC).
 
     TODO: implement (can be a static assertion over OBSERVATION_SPEC's
     names, doesn't require a live env).

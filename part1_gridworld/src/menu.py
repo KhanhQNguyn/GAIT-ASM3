@@ -20,8 +20,10 @@ class MenuSelection:
     def __init__(self, level_id: int, algorithm: str, watch_only: bool):
         self.level_id = level_id
         self.algorithm = algorithm
-        # watch_only=True -> load a saved policy and just animate it
-        # (used for the video demo's "learned policy, not random" evidence).
+        # watch_only=True -> main.py loads the saved Q-table at
+        # algorithms.qtable_path(level_id, algorithm) and just animates the
+        # greedy policy (the video demo's "learned policy, not random"
+        # evidence). watch_only=False -> train fresh, then save to that path.
         self.watch_only = watch_only
 
 

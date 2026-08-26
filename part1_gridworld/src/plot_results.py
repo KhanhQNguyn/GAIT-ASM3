@@ -34,3 +34,17 @@ def plot_training_curve(csv_paths: dict[str, str], title: str, output_name: str)
     TODO: implement with matplotlib.
     """
     raise NotImplementedError
+
+
+def plot_death_rate(csv_paths: dict[str, str], title: str, output_name: str) -> pathlib.Path:
+    """Plot rolling death-rate vs episode for the monster levels (Task 4).
+    The EpisodeLogger CSV already records a `died` bool per episode
+    (logger.py FIELDNAMES), so this needs no new logging -- just a rolling
+    mean of that column. A falling curve on level4/level5 is the cleanest
+    single piece of "the agent learned to avoid monsters" evidence for the
+    report (see docs/AUDIT_main.md 6.8).
+
+    TODO: implement with matplotlib (mirror plot_training_curve's structure;
+    y-axis 0..1, rolling window e.g. 50 episodes).
+    """
+    raise NotImplementedError

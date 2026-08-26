@@ -62,11 +62,31 @@ class StepResult:
 class GridWorldEnv:
     """Headless gridworld environment for one level.
 
-    State representation: TODO -- decide a hashable tuple representation
-    for Q-table indexing, e.g. (agent_x, agent_y, frozenset(apples_left),
-    has_key, chest_open, tuple(monster_positions)). Document the final
-    choice here once implemented, since algorithms.py's QTable depends on
-    this being hashable and reasonably small.
+    State representation (DECIDED -- reset()/step() must return exactly this
+    tuple, and algorithms.py's QTable / save_qtable / load_qtable depend on
+    it being hashable and stable):
+
+        (agent_x, agent_y, apples_bitmask, has_key, chest_open, monsters)
+
+      - agent_x, agent_y : int tile coords.
+      - apples_bitmask   : int; bit i (0-indexed) SET means apple i -- in the
+                           level JSON's "apples" list order -- is still
+                           uncollected. All-collected => 0.
+      - has_key          : bool; False for levels with no key.
+      - chest_open       : bool; False for levels with no chest. (Opening the
+                           chest also flips has_key back to False -- the key
+                           is consumed -- but the state still carries has_key
+                           so pre-open states stay distinct.)
+      - monsters         : tuple(sorted((mx, my) for each monster)); () when
+                           the level has no monsters. Sorted so an identical
+                           set of monster positions always hashes equal.
+
+    Feasibility note: for level4/level6 (2 monsters, open grid) this state
+    space is large. The lever, since level layouts are fixed, is the
+    per-level `episodes` override in config/training_config.json -- raise it
+    if the training curve has not plateaued. Do NOT drop `monsters` from the
+    tuple to shrink the space: that makes the environment non-Markov and
+    breaks Task 4's "learn to avoid monsters" requirement.
 
     Mechanics this class must enforce EXACTLY per config/schema.md, and must
     NOT be altered by any helper function elsewhere in the codebase:
@@ -117,9 +137,15 @@ class GridWorldEnv:
           4. Check no two of {rocks, fire, apples, key, chest, monster starts}
              occupy the same tile unless that is an intentional per-level
              design choice (if so, note it explicitly in the level JSON's
-             "_notes" field and skip the overlap check for that tile).
+             "_design_note" field and skip the overlap check for that tile).
              Raise ValueError naming the overlapping tile and fields.
           5. Return the validated dict.
+
+        Solvability (every apple / key / chest actually reachable from
+        agent_start given the rocks) is deliberately NOT checked here -- it
+        needs a BFS and is a config-authoring check, not a hot-path load
+        check. It lives in tests/test_level_configs.py::test_level_is_solvable
+        instead.
         """
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -161,6 +187,13 @@ class GridWorldEnv:
     def _resolve_monster_moves(self) -> None:
         """Give each monster its 0.4 chance to move one tile in a random
         currently-unblocked direction (rocks/edges block monsters).
+
+        Monsters do NOT block each other: two monsters may occupy the same
+        tile, and a monster's set of unblocked directions is computed from
+        rocks and grid edges only, ignoring other monsters. (This is the
+        simplest rule consistent with the spec, which only names rocks and
+        edges as blockers; documented here and in config/schema.md so it is
+        not silently decided differently at implementation time.)
 
         If a monster has zero unblocked directions available (i.e. it is
         fully surrounded by rocks and/or grid edges -- a reachable situation

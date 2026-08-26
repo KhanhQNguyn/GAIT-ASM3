@@ -1,0 +1,57 @@
+{
+  "ppo": {
+    "baseline": {
+      "policy": "MlpPolicy",
+      "net_arch": [64, 64],
+      "learning_rate": 0.0003,
+      "n_steps": 2048,
+      "batch_size": 64,
+      "n_epochs": 10,
+      "gamma": 0.99,
+      "gae_lambda": 0.95,
+      "clip_range": 0.2,
+      "ent_coef": 0.0
+    },
+    "tuned_v1": {
+      "policy": "MlpPolicy",
+      "net_arch": [128, 128],
+      "learning_rate": 0.00025,
+      "n_steps": 4096,
+      "batch_size": 128,
+      "n_epochs": 10,
+      "gamma": 0.995,
+      "gae_lambda": 0.95,
+      "clip_range": 0.2,
+      "ent_coef": 0.005
+    }
+  },
+  "dqn": {
+    "baseline": {
+      "policy": "MlpPolicy",
+      "net_arch": [64, 64],
+      "learning_rate": 0.0001,
+      "buffer_size": 100000,
+      "learning_starts": 5000,
+      "batch_size": 64,
+      "gamma": 0.99,
+      "train_freq": 4,
+      "target_update_interval": 1000,
+      "exploration_fraction": 0.2,
+      "exploration_final_eps": 0.05
+    },
+    "tuned_v1": {
+      "policy": "MlpPolicy",
+      "net_arch": [128, 128],
+      "learning_rate": 0.00015,
+      "buffer_size": 200000,
+      "learning_starts": 10000,
+      "batch_size": 128,
+      "gamma": 0.995,
+      "train_freq": 4,
+      "target_update_interval": 2000,
+      "exploration_fraction": 0.3,
+      "exploration_final_eps": 0.02
+    }
+  },
+  "_notes": "Per-algorithm hyperparameter presets for scripts/train.py --config <name> (see docs/AUDIT_main.md 5.6 and report section 4). 'baseline' is close to Stable-Baselines3 defaults; 'tuned_v1' is the first deliberate tuning pass. train.py::build_model should load the requested preset from here and stamp its name into the model filename and TensorBoard run name so a sweep is self-documenting. Add further presets (tuned_v2, ...) rather than editing existing ones, so past runs stay reproducible. net_arch feeds policy_kwargs. These values are unvalidated starting points."
+}

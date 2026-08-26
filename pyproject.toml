@@ -1,3 +1,9 @@
+[project]
+name = "rl-assignment"
+version = "0.0.0"
+requires-python = ">=3.11"
+description = "RMIT RL assignment: classical gridworld (Part I) + deep RL arena (Part II)."
+
 [tool.ruff]
 # Target both sub-packages from the repo root.
 # Run:  ruff check .
@@ -7,8 +13,24 @@
 src = ["part1_gridworld", "part2_arena"]
 line-length = 100
 target-version = "py311"   # safe given `from __future__ import annotations`
-                            # and X | Y type hints already in the codebase
+                           # and X | Y type hints already in the codebase
 
 [tool.ruff.lint]
 # E = pycodestyle errors, F = pyflakes, I = isort
 select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+# The two parts use different import roots and there are no __init__.py
+# files (implicit namespace packages), so pytest needs the source dirs on
+# sys.path to collect the test modules at all (see docs/AUDIT_main.md 8.2):
+#   part1_gridworld/src  -> `from env import ...`, `from algorithms import ...`
+#   part1_gridworld      -> `from config.rewards_constants import ...`, `from src.trainer import ...`
+#   part2_arena          -> `from arena.core_env import ...`
+#   part2_arena/scripts  -> `from callbacks import ...`, `from seed_utils import ...`
+pythonpath = [
+    "part1_gridworld/src",
+    "part1_gridworld",
+    "part2_arena",
+    "part2_arena/scripts",
+]
+testpaths = ["part1_gridworld/tests", "part2_arena/tests"]

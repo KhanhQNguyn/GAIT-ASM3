@@ -6,8 +6,13 @@ render.py so these functions are trivially unit-testable in isolation
 
 from __future__ import annotations
 
+import pathlib
 import random
 from collections import defaultdict
+
+# Trained Q-tables are persisted here so a learned policy can be replayed for
+# the video demo without retraining live (see docs/AUDIT_main.md 5.3).
+MODELS_DIR = pathlib.Path(__file__).resolve().parent.parent / "models"
 
 
 class QTable:
@@ -15,10 +20,11 @@ class QTable:
 
     Access pattern (illustrative, not executable):
     The Q-table should be accessed by first retrieving the state, and then
-    the action. For instance, accessing the state yields a list of Q-values
-    for all actions, which can then be indexed by the action integer.
-    The formerly present .values(state) method has been removed -- all
-    callers in trainer.py, compare_algorithms.py, and tests must use
+    the action -- i.e. `q_table[state][action]`. Accessing `q_table[state]`
+    yields a list of Q-values for all actions, which is then indexed by the
+    action integer. `q_table[state][action]` is the ONLY supported access
+    pattern. The formerly present .values(state) method has been removed --
+    all callers in trainer.py, compare_algorithms.py, and tests must use
     this state-then-action access pattern instead.
     """
 
@@ -28,6 +34,39 @@ class QTable:
 
     def __getitem__(self, state):
         return self._table[state]
+
+
+def qtable_path(level_id: int, algorithm: str) -> pathlib.Path:
+    """Canonical on-disk location for a trained Q-table:
+    MODELS_DIR / f"level{level_id}_{algorithm}.json". One fixed convention so
+    trainer.train() (writer), main.py's watch-only path (reader), and any
+    eval/comparison script all agree without passing paths around.
+    """
+    return MODELS_DIR / f"level{level_id}_{algorithm}.json"
+
+
+def save_qtable(q_table: "QTable", path: str | pathlib.Path) -> None:
+    """Serialise a trained QTable to `path` as JSON.
+
+    TODO: implement. Suggested format: {"n_actions": int, "entries":
+    [[state_repr, [q0, q1, ...]], ...]} where state_repr is a JSON-safe
+    encoding of the (hashable) state key (e.g. json.dumps on a list form,
+    or repr()). Create parent dirs. Only non-default (visited) entries need
+    to be written. Keep the format readable so a marker can eyeball it.
+    """
+    raise NotImplementedError
+
+
+def load_qtable(path: str | pathlib.Path, n_actions: int) -> "QTable":
+    """Inverse of save_qtable: rebuild a QTable from the JSON at `path`.
+
+    TODO: implement. Reconstruct each state key from its stored encoding so
+    the loaded table indexes identically to the one env.py produces at
+    runtime (this is why the state representation must be pinned -- see
+    env.py's GridWorldEnv docstring). Raise a clear error if n_actions in
+    the file disagrees with the argument.
+    """
+    raise NotImplementedError
 
 
 def linear_epsilon_decay(

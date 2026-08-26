@@ -1,0 +1,44 @@
+{
+  "arena": {
+    "width": 960,
+    "height": 680,
+    "max_steps": 1200
+  },
+  "player": {
+    "max_health": 100.0,
+    "max_speed": 6.0,
+    "thrust_accel": 0.35,
+    "rotate_speed_rad": 0.12,
+    "radius": 14.0,
+    "shoot_cooldown_steps": 8,
+    "projectile_speed": 12.0,
+    "projectile_damage": 25.0
+  },
+  "enemy": {
+    "radius": 12.0,
+    "contact_damage": 10.0,
+    "base_health": 30.0
+  },
+  "spawner": {
+    "radius": 18.0,
+    "base_health": 120.0
+  },
+  "phase_curve": {
+    "base_enemy_speed": 1.6,
+    "enemy_speed_gain_per_phase": 0.35,
+    "base_spawn_interval_steps": 120,
+    "spawn_interval_decay_per_phase": 12,
+    "min_spawn_interval_steps": 40,
+    "base_num_spawners": 1,
+    "extra_spawner_every_n_phases": 2,
+    "max_expected_phase": 6
+  },
+  "curriculum": {
+    "enabled_ramp_phases": 3,
+    "start_difficulty_fraction": 0.5
+  },
+  "observation": {
+    "num_active_enemies_max": 12
+  },
+  "_notes": "Single source of truth for Part II environment parameters, mirroring part1_gridworld/config/training_config.json. core_env.py / phases.py / obs.py should load this from CONFIG_DIR/arena.json once implemented rather than hardcoding module constants (ARENA_WIDTH/ARENA_HEIGHT/DEFAULT_MAX_STEPS are kept as fallbacks). max_steps was reduced from the original 3000 so a 300k-timestep run sees a usable number of episode terminations (see docs/AUDIT_main.md 5.4). phase_curve and curriculum values feed phases.py::difficulty_for_phase (see its docstring for the ramp schedule). num_active_enemies_max is the normalisation divisor for the num_active_enemies_frac observation feature (docs/AUDIT_main.md 7.4). All values are starting points to be tuned during implementation and reported in report section 4."
+}
