@@ -12,22 +12,26 @@ from arena.entities import ArenaState
 
 # Index -> (name, description). Keep this in sync with build_observation's
 # actual output order -- tests/test_obs_shape.py checks the length matches.
+# Convention: ALL features are normalized to [-1, 1]. Features that are
+# naturally in [0, 1] (e.g. fractions, distances) are linearly rescaled to
+# [-1, 1] via x_normalized = 2 * x_unit - 1. sin/cos features are already
+# in [-1, 1] by definition. This matches the gym_adapter.py Box bounds.
 OBSERVATION_SPEC: list[tuple[str, str]] = [
-    ("player_x", "Player x position, normalized to arena width"),
-    ("player_y", "Player y position, normalized to arena height"),
-    ("player_vx", "Player x velocity, normalized to max speed"),
-    ("player_vy", "Player y velocity, normalized to max speed"),
-    ("player_orientation_sin", "sin(player orientation) -- only meaningful for ControlStyle1, 0 otherwise"),
-    ("player_orientation_cos", "cos(player orientation) -- only meaningful for ControlStyle1, 1 otherwise"),
-    ("player_health_frac", "Player health / max health, in [0, 1]"),
-    ("nearest_enemy_distance", "Distance to nearest enemy, normalized by arena diagonal"),
-    ("nearest_enemy_direction_sin", "sin(angle to nearest enemy) relative to player"),
-    ("nearest_enemy_direction_cos", "cos(angle to nearest enemy) relative to player"),
-    ("nearest_spawner_distance", "Distance to nearest active spawner, normalized"),
-    ("nearest_spawner_direction_sin", "sin(angle to nearest active spawner)"),
-    ("nearest_spawner_direction_cos", "cos(angle to nearest active spawner)"),
-    ("current_phase_frac", "Current phase number / max expected phase, roughly normalized"),
-    ("num_active_enemies_frac", "Count of active enemies / an assumed max, clipped to [0, 1]"),
+    ("player_x", "Player x position, normalized to [-1, 1] across arena width"),
+    ("player_y", "Player y position, normalized to [-1, 1] across arena height"),
+    ("player_vx", "Player x velocity, normalized to [-1, 1] relative to max speed"),
+    ("player_vy", "Player y velocity, normalized to [-1, 1] relative to max speed"),
+    ("player_orientation_sin", "sin(player orientation), in [-1, 1]; 0 if ControlStyle2"),
+    ("player_orientation_cos", "cos(player orientation), in [-1, 1]; 1 if ControlStyle2"),
+    ("player_health_frac", "Player health / max health, rescaled [0,1] -> [-1,1]"),
+    ("nearest_enemy_distance", "Dist to nearest enemy / arena diagonal, rescaled [0,1] -> [-1,1]"),
+    ("nearest_enemy_direction_sin", "sin(angle to nearest enemy) relative to player, in [-1, 1]"),
+    ("nearest_enemy_direction_cos", "cos(angle to nearest enemy) relative to player, in [-1, 1]"),
+    ("nearest_spawner_distance", "Nearest spawner dist / arena diagonal, rescaled [0,1]->[-1,1]"),
+    ("nearest_spawner_direction_sin", "sin(angle to nearest active spawner), in [-1, 1]"),
+    ("nearest_spawner_direction_cos", "cos(angle to nearest active spawner), in [-1, 1]"),
+    ("current_phase_frac", "Current phase / max expected phase, rescaled [0,1] -> [-1,1]"),
+    ("num_active_enemies_frac", "Active enemies / assumed max clipped [0,1], rescaled->[-1,1]"),
 ]
 
 OBS_DIM = len(OBSERVATION_SPEC)

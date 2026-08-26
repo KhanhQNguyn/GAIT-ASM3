@@ -18,6 +18,7 @@ from arena.rewards_config import (
     R_KILL_SPAWNER,
     R_PHASE_PROGRESS,
     R_SHOOT_WHILE_NO_TARGET,
+    SHOT_NO_TARGET_RADIUS,
 )
 
 
@@ -54,16 +55,18 @@ def compute_reward(step_events: dict) -> RewardBreakdown:
     the constants in rewards_config.py.
 
     `step_events` is expected to carry whatever core_env.py's step() logic
-    determined happened this step, e.g.:
-        {
-            "enemies_killed": int,
-            "spawners_killed": int,
-            "phase_advanced": bool,
-            "damage_taken": float,
-            "died": bool,
-            "distance_delta_to_nearest_enemy": float,   # negative = got closer
-            "shot_fired_with_no_target": bool,
-        }
+    determined happened this step. Example (illustrative, not executable):
+    The dictionary should contain keys such as "enemies_killed" (int),
+    "spawners_killed" (int), "phase_advanced" (bool), "damage_taken" (float),
+    "died" (bool), "distance_delta_to_nearest_enemy" (float, negative means
+    got closer), and "shot_fired_with_no_target" (bool).
+    "shot_fired_with_no_target" means no enemy was within the detection
+    radius at the moment the shot was fired -- NOT "zero enemies exist
+    anywhere in the arena." Specifically: if the distance to the nearest
+    enemy exceeds SHOT_NO_TARGET_RADIUS (defined in rewards_config.py;
+    see its docstring for the tuning TODO and scale rationale), the shot
+    counts as having no target regardless of how many enemies are alive
+    elsewhere in the arena.
     The exact key set is up to the implementer -- document it here once
     finalized, since core_env.py must produce exactly this shape.
 

@@ -28,3 +28,21 @@ def test_monster_moving_onto_agent_causes_death():
     position in a synthetic level fixture to make this deterministic).
     """
     pytest.skip("TODO: implement once GridWorldEnv is implemented")
+
+
+def test_agent_moving_onto_monster_causes_death():
+    """Construct a scenario where the agent's own action moves it onto a tile
+    currently occupied by a monster -- the episode must end in death
+    immediately, before any monster movement occurs that turn.
+
+    This tests the second of the two monster-death conditions: the agent
+    walking into a monster (complement to test_monster_moving_onto_agent_causes_death
+    which tests the monster walking into the agent).
+
+    TODO: implement (may require forcing a monster to a fixed position and
+    directing the agent straight into it in a synthetic level fixture to make
+    this deterministic; monster movement should ideally be disabled for this
+    turn so the test isolates step 3 of the step() order of operations).
+    """
+    pytest.skip("TODO: implement once GridWorldEnv is implemented")
+

@@ -1,0 +1,14 @@
+[tool.ruff]
+# Target both sub-packages from the repo root.
+# Run:  ruff check .
+# It is fine if ruff reports existing issues in the skeleton -- this config
+# file only needs to exist and parse without error; do not auto-fix anything
+# else in this pass.
+src = ["part1_gridworld", "part2_arena"]
+line-length = 100
+target-version = "py311"   # safe given `from __future__ import annotations`
+                            # and X | Y type hints already in the codebase
+
+[tool.ruff.lint]
+# E = pycodestyle errors, F = pyflakes, I = isort
+select = ["E", "F", "I"]

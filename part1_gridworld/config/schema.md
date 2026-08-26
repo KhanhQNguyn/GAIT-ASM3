@@ -33,8 +33,12 @@ tabular Q-learning/SARSA converge quickly.
 
 - Moving into a rock or off the grid edge results in no movement (not an
   error, not a reset).
-- Moving into fire, or a monster moving into the agent's tile, is immediate
-  death and ends the episode.
+- Moving into fire is immediate death and ends the episode.
+- A monster moving into the agent's tile is immediate death and ends the episode.
+- The agent moving onto a monster's current tile is also immediate death and ends
+  the episode — this is an independent death condition, identical in effect to
+  fire contact, and is NOT prevented by step ordering. Both directions of
+  occupancy collision (monster-into-agent and agent-into-monster) must be checked.
 - Apples give `REWARD_APPLE`; picking one up removes it from the tile.
 - The key gives `REWARD_KEY` (0) and is only useful to open the chest.
 - The chest gives `REWARD_CHEST` only if the agent currently holds the key;

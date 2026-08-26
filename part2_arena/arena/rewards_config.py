@@ -50,3 +50,15 @@ shooting with no enemy in range, to discourage spamming the shoot action.
 Defaults to 0.0 (disabled) -- only enable this with a documented
 justification, since an undocumented shaping term is worse for the report
 than not having one."""
+
+SHOT_NO_TARGET_RADIUS: float = 150.0
+"""Distance threshold (in arena world units) beyond which the nearest enemy
+is not considered a valid target for R_SHOOT_WHILE_NO_TARGET purposes.
+A shot fired when the nearest enemy is farther than this value sets
+"shot_fired_with_no_target" in step_events (see rewards.py).
+
+TODO: tune once arena scale is confirmed. The placeholder value of 150.0 is
+roughly 0.3 × the diagonal of a 400×400 arena
+(diagonal ≈ 566 units → 0.3 × 566 ≈ 170; 150 is a conservative starting
+point). Adjust to match the actual ARENA_WIDTH / ARENA_HEIGHT values in
+core_env.py once those are implemented."""

@@ -18,6 +18,11 @@ def test_observation_has_fixed_shape():
 def test_observation_has_no_nans_or_infs():
     """Especially check the zero-enemies / zero-spawners edge case, where a
     naive nearest-distance calculation could divide by zero or return NaN.
+    Once implemented, this test should also assert that every value in the
+    returned array falls within [-1, 1] (the decided normalization convention
+    for all features; see obs.py's OBSERVATION_SPEC and the rescaling formula
+    there). Both the NaN/Inf check and the bounds check must pass for any
+    valid arena state, including degenerate cases with no enemies/spawners.
 
     TODO: implement.
     """

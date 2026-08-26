@@ -13,20 +13,18 @@ from collections import defaultdict
 class QTable:
     """Maps (state, action) -> float, defaulting unseen entries to 0.0.
 
-    TODO: implement as a thin wrapper around collections.defaultdict so
-    algorithms.py functions can call q_table[state][action] or
-    q_table.get(state, action) -- pick one interface and use it
-    consistently across q_learning_update/sarsa_update/expected_sarsa_update
-    and env-facing code in trainer.py.
+    Access pattern (illustrative, not executable):
+    The Q-table should be accessed by first retrieving the state, and then
+    the action. For instance, accessing the state yields a list of Q-values
+    for all actions, which can then be indexed by the action integer.
+    The formerly present .values(state) method has been removed -- all
+    callers in trainer.py, compare_algorithms.py, and tests must use
+    this state-then-action access pattern instead.
     """
 
     def __init__(self, n_actions: int):
         self.n_actions = n_actions
         self._table: dict = defaultdict(lambda: [0.0] * n_actions)
-
-    def values(self, state) -> list[float]:
-        """Return the list of Q-values for all actions at `state`."""
-        return self._table[state]
 
     def __getitem__(self, state):
         return self._table[state]

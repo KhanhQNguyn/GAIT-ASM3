@@ -25,12 +25,15 @@ class IntrinsicRewardTracker:
         tracker = IntrinsicRewardTracker(strength=cfg.intrinsic_reward_strength)
         tracker.reset_episode()          # call at the start of EVERY episode
         for step in episode:
-            r_i = tracker.visit_and_get_bonus(state)   # call BEFORE or AFTER
-                                                          # env.step, but be
-                                                          # consistent about
-                                                          # which state (s or
-                                                          # s') is counted --
-                                                          # document the choice
+            r_i = tracker.visit_and_get_bonus(state)   # call with the state
+                                                          # BEFORE env.step (i.e.
+                                                          # current state s, not
+                                                          # next state s'); the
+                                                          # visit is recorded first,
+                                                          # then the bonus uses the
+                                                          # POST-visit count so the
+                                                          # very first visit yields
+                                                          # strength / sqrt(1).
             total_reward = env_reward + r_i
     """
 
@@ -50,10 +53,22 @@ class IntrinsicRewardTracker:
 
     def visit_and_get_bonus(self, state) -> float:
         """Record a visit to `state` for the current episode, then return
-        strength / sqrt(n(s) + 1) using the count AFTER this visit is
-        recorded (or before -- pick one and be consistent; document the
-        choice here once decided, since it changes the very first visit's
-        bonus value).
+        the intrinsic bonus using the count AFTER this visit is recorded.
+
+        Implementation instruction: increment n(s) first, then return
+            strength / sqrt(n(s))
+        where n(s) is the post-increment count. The first visit yields
+        strength / sqrt(1) = strength, the second yields strength / sqrt(2),
+        and so on.
+
+        Note on the module-level formula: the module docstring writes the
+        same formula as  r_i = strength / sqrt(n(s) + 1)  using the
+        PRE-visit count. These are two equivalent ways to write the same
+        computation — post-increment n(s) equals (pre-visit n(s) + 1) on
+        every visit, not just the first. There is no difference in the
+        numeric result; choose whichever form is easier to read when
+        implementing, as long as both are consistent with the instruction
+        above.
 
         TODO: implement.
         """

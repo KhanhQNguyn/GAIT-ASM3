@@ -71,7 +71,12 @@ class GridWorldEnv:
     Mechanics this class must enforce EXACTLY per config/schema.md, and must
     NOT be altered by any helper function elsewhere in the codebase:
       - Moving into a rock or off-grid: no movement (not an error).
-      - Moving into fire, or a monster moving into the agent: death, episode ends.
+      - Moving into fire: death, episode ends immediately.
+      - A monster moving into the agent's tile: death, episode ends.
+      - The agent moving onto a monster's current tile: also death, episode
+        ends immediately. This is an independent, equally valid death path —
+        not an edge case, not prevented by step ordering. Both directions of
+        occupancy collision must be handled identically.
       - Apple pickup: REWARD_APPLE, tile cleared.
       - Key pickup: REWARD_KEY (0), sets an internal "has_key" flag.
       - Chest open: only if has_key, REWARD_CHEST, consumes the key.
@@ -90,13 +95,35 @@ class GridWorldEnv:
 
     @staticmethod
     def _load_level(path: pathlib.Path) -> dict:
-        """Load and lightly validate a levelN.json file against the schema
-        documented in config/schema.md.
+        """Load and validate a levelN.json file against the schema documented
+        in config/schema.md.
 
-        TODO: json.load, validate required keys, return dict.
+        TODO: Implement as follows (do NOT use bare assertions -- raise
+        ValueError with a message that names the level file and the specific
+        problem so malformed levels fail loudly at load time, not as a
+        confusing KeyError/IndexError mid-training):
+
+          1. json.load the file.
+          2. Check all required top-level keys are present:
+               level_id, name, grid_size, agent_start, max_steps,
+               rocks, fire, apples, key, chest, monsters
+             Raise ValueError naming any missing key.
+          3. Check all coordinate values are within bounds:
+               [0, grid_size[0]) x [0, grid_size[1])
+             for: agent_start, every rock coordinate, every fire coordinate,
+             every apple coordinate, key (if not null), chest (if not null),
+             and every monster's "start" field.
+             Raise ValueError naming the out-of-bounds coordinate and field.
+          4. Check no two of {rocks, fire, apples, key, chest, monster starts}
+             occupy the same tile unless that is an intentional per-level
+             design choice (if so, note it explicitly in the level JSON's
+             "_notes" field and skip the overlap check for that tile).
+             Raise ValueError naming the overlapping tile and fields.
+          5. Return the validated dict.
         """
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
+
 
     def reset(self) -> tuple:
         """Reset to the level's initial state and return the initial state
@@ -114,14 +141,18 @@ class GridWorldEnv:
           1. Move the agent (blocked by rocks/edges -> no movement).
           2. If the agent stepped onto fire -> death, episode ends here
              (monsters do not get to move this turn).
-          3. Resolve pickups (apple / key / chest) at the agent's new tile.
-          4. Check for a "collected everything" win condition.
-          5. If not already done, move each monster with probability
+          3. If the agent's new tile is occupied by a monster -> death,
+             episode ends here (monsters do not get to move this turn).
+             This is a normal, expected death path — the agent walked into
+             the monster. Do not skip this check or fold it into step 6.
+          4. Resolve pickups (apple / key / chest) at the agent's new tile.
+          5. Check for a "collected everything" win condition.
+          6. If not already done, move each monster with probability
              move_prob (0.4) in a random unblocked direction.
-          6. If a monster is now on the agent's tile (either it moved onto
-             the agent, or -- should not happen given step 1 -- the agent
-             moved onto it) -> death, episode ends.
-          7. Increment step counter; truncate if max_steps reached.
+          7. If a monster now occupies the agent's tile (the monster moved
+             onto the agent this turn) -> death, episode ends. (The reverse
+             case — agent moved onto monster — was already caught in step 3.)
+          8. Increment step counter; truncate if max_steps reached.
 
         TODO: implement, returning a StepResult.
         """
@@ -130,6 +161,13 @@ class GridWorldEnv:
     def _resolve_monster_moves(self) -> None:
         """Give each monster its 0.4 chance to move one tile in a random
         currently-unblocked direction (rocks/edges block monsters).
+
+        If a monster has zero unblocked directions available (i.e. it is
+        fully surrounded by rocks and/or grid edges -- a reachable situation
+        given level4-6's 2x2 rock clusters near monster start positions), it
+        does not move that turn. This counts as the monster "not moving" for
+        the 0.4 roll -- do NOT crash on an empty choices list, and do NOT
+        retry the roll or move in a blocked direction.
 
         Kept as its own method so tests/test_monster_stochastic.py can
         call it directly with a seeded RNG and check the empirical move

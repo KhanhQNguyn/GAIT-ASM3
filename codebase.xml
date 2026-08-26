@@ -42,6 +42,12 @@ The content is organized as follows:
 <directory_structure>
 .claude/
   settings.local.json
+docs/
+  assessment_requirements_summary.md
+  CONTRIBUTIONS.md
+  RUBRIC_MAP.md
+  SUBMISSION_CHECKLIST.md
+  VIDEO_SCRIPT.md
 part1_gridworld/
   config/
     level0.json
@@ -104,19 +110,30 @@ report/
   report_template.md
 scripts/
   generate_report_tables.py
-assessment_requirements_summary.md
-CONTRIBUTIONS.md
+pyproject.toml
 README.md
 requirements.txt
-RUBRIC_MAP.md
-scaffold_prompt_v2.md
-scaffold_prompt.md
-SUBMISSION_CHECKLIST.md
-VIDEO_SCRIPT.md
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="pyproject.toml">
+[tool.ruff]
+# Target both sub-packages from the repo root.
+# Run:  ruff check .
+# It is fine if ruff reports existing issues in the skeleton -- this config
+# file only needs to exist and parse without error; do not auto-fix anything
+# else in this pass.
+src = ["part1_gridworld", "part2_arena"]
+line-length = 100
+target-version = "py311"   # safe given `from __future__ import annotations`
+                            # and X | Y type hints already in the codebase
+
+[tool.ruff.lint]
+# E = pycodestyle errors, F = pyflakes, I = isort
+select = ["E", "F", "I"]
+</file>
 
 <file path=".claude/settings.local.json">
 {
@@ -127,6 +144,496 @@ This section contains the contents of the repository's files.
     ]
   }
 }
+</file>
+
+<file path="docs/assessment_requirements_summary.md">
+# Assessment Requirements Summary — Reinforcement Learning Project
+
+**Total Points: 40**
+
+## Overview
+
+This is a two-part reinforcement learning project focused on building autonomous systems, with applications to robotics, self-driving cars, drone navigation, warehouse automation, adaptive game AI, traffic control, and simulation-based training.
+
+- **Part I** — Classical value-based RL (Q-learning, SARSA) in a visual Pygame gridworld.
+- **Part II** — Deep RL (Stable Baselines3) in a real-time Pygame arena.
+
+By the end, you must demonstrate: designed simulation environments, defined state/reward models, trained agents, analysis of learning behavior via logs, and visual demonstrations of intelligent behavior.
+
+---
+
+## Part I — Classical Reinforcement Learning (20 pts)
+
+### General Requirements
+- Gridworld must be implemented **and visually rendered in Pygame** — must support interaction and animation.
+- **Console/text-based displays are NOT permitted.**
+- Multiple levels with different layouts are required.
+- Helper functions are allowed, but **rewards and mechanics must not be altered**.
+
+### Gridworld Rules
+- Agent movement: up, down, left, right.
+- Rocks block movement (attempting to move into one results in no movement).
+- Fire or monsters cause **immediate death** on contact.
+- Apples give **+1 reward**.
+- Keys give **no reward** but allow opening chests.
+- Opening a chest gives **+2 reward**.
+- Episode ends when all collectible rewards are obtained **or** the agent dies.
+- After each agent action, monsters (if present) have a **40% chance to move**.
+
+### Task 1: Basic Q-Learning (Level 0)
+- Level 0 contains only apples, positioned on the right side of the map.
+- Requirements:
+  - Epsilon-greedy policy for action selection.
+  - Correct Q-learning update rule (off-policy, using max over next-state actions).
+  - Linear epsilon decay from `epsilonStart` to `epsilonEnd` (config-driven).
+  - Random tie-breaking when multiple actions share the best Q-value.
+  - Must demonstrate a learned shortest-path policy to the apples.
+- Training parameters (episodes, alpha, gamma, epsilon ranges) will be supplied via a config file.
+
+### Task 2: Basic SARSA (Level 1)
+- Implement SARSA using **on-policy** updates (uses the actually chosen next action, not the max).
+- Use the **same exploration schedule** as Q-learning.
+- Must demonstrate that the SARSA policy **differs from Q-learning** — typically more conservative around hazards — with a short comparison.
+
+### Task 3: Extend Q-Learning & SARSA to Levels 2–3
+- These levels introduce:
+  - Multiple apples
+  - A key
+  - A chest
+- Both algorithms must run correctly with correct episode termination and reward accounting.
+
+### Task 4: Monster Levels (Levels 4–5)
+- Implement:
+  - Monsters that move after each agent action.
+  - Probabilistic movement (e.g., 40% chance to move).
+  - Simple movement pattern (e.g., random choice among allowed directions).
+  - Player dies if it enters a monster's tile or a monster moves into the player.
+- RL requirements:
+  - Q-learning and SARSA must handle **stochastic transitions**.
+  - Agent should learn to avoid monsters while still completing objectives.
+- Evidence to include:
+  - Working monster movement in the gridworld.
+  - Training curves showing learning behavior on Levels 4 and 5.
+
+### Task 5: Intrinsic Reward (Level 6)
+- Intrinsic reward formula:
+  - `r_i = intrinsicRewardStrength / sqrt(n(s) + 1)`
+  - where `n(s)` = number of visits to the current state during the episode.
+  - Total reward = environment reward + intrinsic reward.
+- Requirements:
+  - Environment rewards must remain unchanged.
+  - Maintain a **per-episode** visit counter for each state.
+  - Agent must incorporate intrinsic reward into Q-learning/SARSA updates.
+- Evidence to include in the report:
+  - Training curves comparing learning with vs. without intrinsic reward.
+  - Short explanation of the observed improvement.
+
+---
+
+## Part II — Deep Reinforcement Learning in a Pygame Arena (20 pts)
+
+Design and build a real-time, visually animated Pygame arena, and train deep RL agents in it using **Stable Baselines3**. The agent learns from a continuous observation vector using a neural-network-based algorithm.
+
+### 1. Environment Requirements
+The arena must include:
+- A controllable player ship with movement and shooting.
+- Enemy spawners that periodically create enemies.
+- Enemies that navigate toward the player.
+- Player health and enemy health systems.
+- Projectile collisions.
+- A **phase system**: destroying all active spawners progresses the simulation to the next difficulty level.
+- Must feel like a simplified action arena (continuous/semi-continuous movement), **not** a tile-based grid.
+- All elements must be visually rendered.
+- Episode ends when:
+  - The player dies, **or**
+  - A maximum time/step count is reached.
+
+### 2. Gym-Style API
+Must expose:
+- `reset()` → returns initial observation.
+- `step(action)` → returns `(observation, reward, done, info)`.
+- `render()` → displays the scene for evaluation.
+
+### 3. Observation Design
+Fixed-size numeric feature vector including at minimum:
+- Player position
+- Player velocity
+- Player orientation (if relevant)
+- Distance and relative direction to nearest enemy
+- Distance and relative direction to nearest spawner
+- Player health
+- Current phase
+- **No pixels/screenshots** — use numeric feature vectors, fixed size.
+
+### 4. Action Sets
+Must implement **two distinct control schemes**, each with its own trained agent:
+
+**Control Style 1 — Rotation + Thrust**
+- No action
+- Thrust forward
+- Rotate left
+- Rotate right
+- Shoot
+
+**Control Style 2 — Direct Directional Movement**
+- No action
+- Move up
+- Move down
+- Move left
+- Move right
+- Shoot
+
+- Each control style needs its own trained model **and** its own evaluation script.
+
+### 5. Reward Function
+Must include (at minimum):
+- Positive reward for destroying enemies.
+- Larger positive reward for destroying spawners.
+- Positive reward for progressing to the next phase.
+- Negative reward when taking damage.
+- Strong negative reward on death.
+- Any optional/additional shaping rewards must be **justified**.
+
+### 6. Deep RL Training
+- Use **Stable Baselines3** with **DQN** or **PPO**.
+- Neural network must have at least one hidden layer (MLP).
+- Train while logging results to **TensorBoard**.
+- Hyperparameters must be tuned meaningfully (not left at defaults only).
+- Save trained models in a folder named `models`.
+- Provide an evaluation script that can visually play the agent in the arena.
+
+---
+
+## Report Requirements (10 pts)
+
+- **Strict maximum length: 10 pages**, including images, **no appendix** (anything beyond page 10 will not be considered).
+- Must include:
+  1. Description of both environments.
+  2. Observation design (what each feature means and why it was chosen).
+  3. Reward design (explained and justified, including any shaping).
+  4. Hyperparameter exploration (with evidence, e.g., tables/plots).
+  5. Comparison of the two control sets, with evidence (curves/screenshots/logs).
+  6. Evidence of training with logs and screenshots.
+  7. Originality justification.
+  8. Student numbers and a contribution summary for all team members.
+  9. A link to the video recording demonstration.
+
+---
+
+## Submission Requirements (STRICT)
+
+You must submit **exactly 2 items**:
+
+1. **A link to a zip file** containing:
+   - All gridworld code
+   - Arena simulation code
+   - RL training scripts
+   - Saved models
+   - TensorBoard logs
+2. **Your report PDF**, including:
+   - All student numbers and a contribution summary
+   - A link to the video recording demonstration
+
+> Note: the actual zip file must also be uploaded to Canvas per the "Submission Instructions" section.
+
+### Late Submission Policy
+- 10% penalty per calendar day late.
+- Notify the teaching team if submitting late so the correct version is downloaded.
+- Special consideration information is available via RMIT's official page.
+
+---
+
+## Video Demonstration Requirements
+
+- **Maximum length: 10 minutes.**
+- **All team members must appear** and present at least one part.
+- Upload to YouTube (unlisted) or university OneDrive; link it in the PDF report.
+
+### Must Show — Part I (Gridworld)
+- The gridworld visible in a Pygame window.
+- The agent running with Q-learning or SARSA on one level.
+- Monsters/items behaving correctly (if applicable to the level shown).
+- Evidence the agent is following its **learned policy**, not acting randomly.
+
+### Must Show — Part II (Arena)
+- The real-time Pygame arena running visually.
+- The trained deep RL agent controlling the player.
+- Enemies spawning and moving.
+- Projectiles and collisions functioning.
+- At least one phase progression occurring.
+- Learned behavior demonstrated for **both** control schemes (two short clips acceptable).
+
+### Acceptability Requirements
+- Environment and agent behavior must match the submitted code.
+- Models shown must be the same ones included in the repository.
+- Must show actual gameplay — not static screens.
+
+---
+
+## Reuse Policy
+You may reuse code or materials from previous assignments or tutorials.
+
+---
+
+## Appendix: Technical Feasibility Guide (Not Mandatory, but Recommended)
+
+### Gridworld
+- Grid size: ~10×10 or 12×12.
+- Use simple Pygame shapes.
+- Q-learning/SARSA should run quickly.
+
+### Arena Simulation
+- Window size: ~800×600 or 960×680.
+- Clear shapes for players, enemies, bullets.
+- Keep enemy count/spawner frequency manageable.
+- Physics should remain simple.
+- Render only during evaluation, not during long training runs.
+
+### Observation Vector
+- ~10–30 float features.
+- Fixed size.
+- No pixels/images.
+
+### RL Training
+- Use Stable Baselines3.
+- Small MLP networks.
+- Train headless for speed.
+- Typical total training: 100,000–600,000 timesteps.
+- Use TensorBoard for monitoring.
+
+---
+
+## Learning Objectives Assessed
+- **CLO1**: Apply various AI techniques and tools in the context of games.
+- **CLO3**: Work effectively in a team environment to develop a complex software system.
+
+---
+
+## Grading Rubric Breakdown (Total: 40 pts)
+
+| Section | Criteria | Points |
+|---|---|---|
+| Part I-A | Gridworld implementation & rules (visual/animated/interactive; mechanics match spec) | 2 |
+| Part I-B | Task 1: Q-learning (epsilon-greedy, correct update rule, linear decay, tie-breaking, shortest-path evidence) | 2.5 |
+| Part I-C | Task 2: SARSA (on-policy update, same exploration schedule, comparison vs Q-learning) | 3 |
+| Part I-D | Task 3: Levels 2–3 (multiple apples, key, chest; correct termination/reward accounting) | 3 |
+| Part I-F | Task 5: Intrinsic reward (correct formula, unchanged env rewards, per-episode visit counter, training curve comparison + explanation) | 3 |
+| Part II-G | Arena environment requirements (real-time, animated; core gameplay; health/phase systems; episode-end conditions) | 4.5 |
+| Part II-H | Gym-style API + observation design (reset/step/render; fixed-size vector with required features) | 2.5 |
+| Part II-I | Two control schemes + models (both control styles; separate trained/saved models; separate evaluation scripts) | 4 |
+| Part II-J | Reward design & deep RL training quality (reward structure; SB3 with DQN/PPO + TensorBoard logging; meaningful hyperparameter tuning) | 3 |
+| Report | Page limit, environment/observation/reward descriptions, hyperparameter exploration, control-set comparison, originality justification | 2.5 |
+| Video Demo | ≤10 min, all members present, gridworld + arena shown, learned policy evidence, both control schemes shown | 5 |
+| Creativity | Going beyond expected requirements | 5 |
+
+**Note:** Part I Task 4 (Monster Levels) is described in detail in the task list but does not appear as a separately labeled rubric row in the provided rubric — its evidence (monster behavior, stochastic transition handling, training curves) likely factors into the Part I-D/general implementation criteria; confirm with your instructor if unclear.
+
+---
+
+## Academic Integrity
+- Standard RMIT academic integrity expectations apply.
+- Properly acknowledge and reference all external words, data, diagrams, models, frameworks, and ideas (including internet sources).
+- Plagiarism includes failure to document sources, copying material from the internet/databases, and collusion between students.
+- This is treated as serious misconduct.
+
+## Note on Spec Changes
+This assignment specification may be corrected after release (to fix mistakes or add information). Any corrected version will be uploaded to Canvas with an announcement — check for updates.
+</file>
+
+<file path="docs/CONTRIBUTIONS.md">
+# Contributions
+
+Fill this in as work happens, not just at the end — it gets copy-pasted into
+the report (required section: "student numbers and a contribution summary for
+all team members").
+
+| Student Number | Name | Contribution Summary |
+|---|---|---|
+| TODO | TODO | TODO |
+| TODO | TODO | TODO |
+
+## Detailed log (optional, useful for resolving disputes / writing the summary above)
+
+- YYYY-MM-DD — who — what (e.g. "implemented Q-learning update rule + tests").
+</file>
+
+<file path="docs/RUBRIC_MAP.md">
+# Rubric Map
+
+Every module/function below is mapped to the exact rubric row it satisfies
+(point values from the assignment's 40-point breakdown table). Use this to
+self-grade before submitting — if a row has no evidence yet, it's not done.
+
+| Rubric Row | Points | Satisfied By | Status |
+|---|---|---|---|
+| Part I-A — Gridworld implementation & rules (visual/animated/interactive; mechanics match spec) | 2 | `part1_gridworld/src/env.py`, `render.py`, `menu.py` | TODO |
+| Part I-B — Task 1: Q-learning (epsilon-greedy, correct update, linear decay, tie-breaking, shortest-path evidence) | 2.5 | `part1_gridworld/src/algorithms.py` (`epsilon_greedy`, `q_learning_update`), `config/level0.json`, `config/training_config.json`, `tests/test_algorithms.py`, `tests/test_tie_breaking.py` | TODO |
+| Part I-C — Task 2: SARSA (on-policy update, same exploration schedule, comparison vs Q-learning) | 3 | `part1_gridworld/src/algorithms.py` (`sarsa_update`), `config/level1.json`, `src/compare_algorithms.py` | TODO |
+| Part I-D — Task 3: Levels 2-3 (multiple apples, key, chest; correct termination/reward accounting) | 3 | `config/level2.json`, `config/level3.json`, `src/env.py`, `tests/test_env_rules.py` | TODO |
+| Part I (Task 4, folded into I-D/general) — Monster levels 4-5 (stochastic movement, avoidance learning, training curves) | (see note below) | `config/level4.json`, `config/level5.json`, `src/env.py` (monster movement), `tests/test_monster_stochastic.py`, `src/plot_results.py` | TODO |
+| Part I-F — Task 5: Intrinsic reward (correct formula, unchanged env rewards, per-episode visit counter, curve comparison + explanation) | 3 | `src/intrinsic.py`, `config/level6.json`, `tests/test_intrinsic_reward.py`, `src/plot_results.py` | TODO |
+| Part II-G — Arena environment requirements (real-time, animated; core gameplay; health/phase systems; episode-end conditions) | 4.5 | `part2_arena/arena/core_env.py`, `entities.py`, `physics.py`, `phases.py`, `render_pygame.py` | TODO |
+| Part II-H — Gym-style API + observation design (reset/step/render; fixed-size vector with required features) | 2.5 | `arena/core_env.py` (literal 4-tuple API), `arena/gym_adapter.py` (SB3 5-tuple), `arena/obs.py`, `tests/test_env_api.py`, `tests/test_obs_shape.py` | TODO |
+| Part II-I — Two control schemes + models (both control styles; separate trained/saved models; separate evaluation scripts) | 4 | `arena/actions.py`, `scripts/train.py --style {1,2}`, `scripts/eval_style1.py`, `scripts/eval_style2.py`, `models/` | TODO |
+| Part II-J — Reward design & deep RL training quality (reward structure; SB3 DQN/PPO + TensorBoard; meaningful hyperparameter tuning) | 3 | `arena/rewards_config.py`, `arena/rewards.py`, `scripts/train.py`, `tests/test_reward_terms.py`, `logs/` (TensorBoard) | TODO |
+| Report — page limit, environment/observation/reward descriptions, hyperparameter exploration, control-set comparison, originality justification | 2.5 | `report/report_template.md`, `report/figures/`, `scripts/generate_report_tables.py` | TODO |
+| Video Demo — <=10 min, all members present, gridworld + arena shown, learned-policy evidence, both control schemes shown | 5 | `VIDEO_SCRIPT.md` | TODO |
+| Creativity — going beyond expected requirements | 5 | (a) `part2_arena/scripts/compare_ppo_dqn.py`; (b) `part2_arena/scripts/plot_reward_decomposition.py`; (c) `part2_arena/arena/phases.py` curriculum hook + `train.py --curriculum`; (d) `part1_gridworld/src/algorithms.py::expected_sarsa_update` + `src/compare_algorithms.py` | TODO |
+
+**Note on Task 4 (Monster Levels):** the spec's rubric table doesn't give
+monster levels a separately labeled row — its evidence (monster behavior,
+stochastic transition handling, training curves) is treated here as folded
+into Part I-D and the general Part I-A implementation quality. Confirm with
+the instructor if this is graded separately.
+
+## How to use this file
+
+Update the `Status` column as each piece lands (`TODO` -> `IN PROGRESS` ->
+`DONE`, with a short note or commit reference). Before submission, every row
+must be `DONE` with a pointer to the evidence (script output, plot, test
+pass) referenced in the report.
+
+---
+
+## Pre-implementation fixes applied
+
+The following documentation/spec-fidelity fixes were applied to the skeleton
+**before any algorithm or environment logic was written**, so they are in
+place from the first implementation commit. None of these changes implement
+`NotImplementedError` function bodies.
+
+1. **Monster-tile-entry spec gap** (`config/schema.md`, `src/env.py`,
+   `tests/test_monster_stochastic.py`) — added explicit invariant that the
+   agent moving onto a monster's tile is immediate death (independent of
+   monster movement); removed the self-contradictory "should not happen"
+   comment from `step()`'s docstring; added
+   `test_agent_moving_onto_monster_causes_death` stub.
+
+2. **`_load_level` TODO made concrete** (`src/env.py`, `src/trainer.py`) —
+   replaced vague "json.load, validate" TODO with a full itemised checklist
+   of required keys, bounds checks, and overlap checks, with ValueError
+   requirements; `load_training_config` likewise documents alpha/gamma/
+   epsilon/episodes validation requirements.
+
+3. **QTable interface collapsed to `__getitem__`** (`src/algorithms.py`) —
+   removed the duplicate `values(state)` method; class docstring now states
+   `q_table[state][action]` as the only access pattern; all callers must use
+   `q_table[state]` instead of `.values(`.
+
+4. **Intrinsic-reward visit-order decided** (`src/intrinsic.py`) — documented
+   that `visit_and_get_bonus` increments the count first then returns
+   `strength / sqrt(n(s))` (post-visit count); usage example updated to
+   reflect the call timing (current state `s`, before `env.step`).
+
+5. **Observation-space bounds finalised** (`arena/obs.py`,
+   `arena/gym_adapter.py`, `tests/test_obs_shape.py`) — chose `[-1, 1]` as
+   the universal normalization convention; updated every `OBSERVATION_SPEC`
+   description to state the target range; marked the `Box` bounds as final
+   (not a placeholder); updated the test TODO to assert value range.
+
+6. **Boxed-in-monster case documented** (`src/env.py`) — added one sentence
+   to `_resolve_monster_moves`: a monster with zero unblocked directions
+   skips its move silently (no crash on empty choices list).
+
+7. **Lint config added** (`pyproject.toml` at repo root) — ruff configured
+   for Python 3.11+, line length 100, `E/F/I` rule sets covering both
+   `part1_gridworld` and `part2_arena`.
+
+8. **This section** (`docs/RUBRIC_MAP.md`) — added for teammate visibility.
+
+9. **Round-2 follow-ups** (`src/intrinsic.py`, `arena/rewards_config.py`,
+   `arena/rewards.py`) — (a) rewrote `visit_and_get_bonus` docstring to
+   state plainly that post-increment `n(s)` and `(pre-visit n(s) + 1)` are
+   algebraically identical on every visit, not just the first (removes a
+   misleading implication that implementers need to choose between two
+   diverging conventions); (b) added `SHOT_NO_TARGET_RADIUS: float = 150.0`
+   to `rewards_config.py` with a tuning TODO, and updated `rewards.py`'s
+   import block and docstring to reference it (closes the "constant must be
+   added" loose thread flagged in round 1).
+</file>
+
+<file path="docs/SUBMISSION_CHECKLIST.md">
+# Submission Checklist (STRICT — exactly 2 items required)
+
+## 1. Zip file (link to it)
+
+Contents required:
+- [ ] All gridworld code (`part1_gridworld/`)
+- [ ] Arena simulation code (`part2_arena/arena/`)
+- [ ] RL training scripts (`part1_gridworld/src/trainer.py`, `part2_arena/scripts/train.py`, etc.)
+- [ ] Saved models (`part2_arena/models/`)
+- [ ] TensorBoard logs (`part2_arena/logs/`)
+
+Also: the actual zip file must be uploaded to Canvas per the submission
+instructions — a link alone is not sufficient there.
+
+## 2. Report PDF
+
+- [ ] Strict max 10 pages, including images, **no appendix** (anything beyond
+      page 10 will not be considered).
+- [ ] Description of both environments.
+- [ ] Observation design (each feature explained + justified).
+- [ ] Reward design (explained + justified, including any shaping).
+- [ ] Hyperparameter exploration (tables/plots as evidence).
+- [ ] Comparison of the two control sets (curves/screenshots/logs).
+- [ ] Evidence of training (logs + screenshots).
+- [ ] Originality justification.
+- [ ] Student numbers + contribution summary for all team members (see `CONTRIBUTIONS.md`).
+- [ ] Link to the video recording demonstration (see `VIDEO_SCRIPT.md`).
+
+## Before you submit
+
+- [ ] Every row in `RUBRIC_MAP.md` is `DONE`.
+- [ ] `python scripts/generate_report_tables.py` has been re-run against the
+      final code so report tables match the submitted constants exactly.
+- [ ] Models in `part2_arena/models/` are the exact ones shown in the video.
+- [ ] If submitting late: notify the teaching team so the correct version is
+      downloaded. 10% penalty applies per calendar day late.
+</file>
+
+<file path="docs/VIDEO_SCRIPT.md">
+# Video Demo Script (Max 10 Minutes)
+
+Every checkbox below corresponds to something the rubric explicitly requires
+being shown. Fill in the timestamp and presenter as segments are recorded.
+Upload to YouTube (unlisted) or university OneDrive; link the final URL in
+the report.
+
+## Part I — Gridworld
+
+| # | Segment | Must show | Timestamp | Presenter |
+|---|---|---|---|---|
+| 1 | Gridworld window | Pygame window visible, animated | | |
+| 2 | Q-learning or SARSA run | Agent running on one level | | |
+| 3 | Monster/item behavior | If demoing a level with monsters/keys/chests | | |
+| 4 | Learned-policy evidence | Clearly NOT random (e.g. epsilon=0 greedy run, or narrate the shortest-path/avoidance behavior) | | |
+
+## Part II — Arena
+
+| # | Segment | Must show | Timestamp | Presenter |
+|---|---|---|---|---|
+| 5 | Arena running | Real-time Pygame arena, visually | | |
+| 6 | Trained agent — Control Style 1 | Rotation + thrust + shoot, learned behavior | | |
+| 7 | Trained agent — Control Style 2 | Directional movement + shoot, learned behavior | | |
+| 8 | Enemies + spawners | Spawning and moving toward player | | |
+| 9 | Projectiles/collisions | Working hit detection | | |
+| 10 | Phase progression | At least one phase transition occurring on screen | | |
+
+## Constraints checklist
+
+- [ ] Total length <= 10 minutes.
+- [ ] Every team member appears and presents at least one segment.
+- [ ] Environment/agent behavior shown matches the submitted code exactly.
+- [ ] Models shown are the same ones included in the submitted repo/zip.
+- [ ] All footage is actual gameplay, not static screens or slides.
+
+## Running order draft (edit freely)
+
+1. Intro (who we are, what this is) — ~20s
+2. Part I demo + narration — ~3 min
+3. Part II demo, Style 1 — ~2 min
+4. Part II demo, Style 2 — ~2 min
+5. Phase progression + wrap-up — ~1 min
 </file>
 
 <file path="part1_gridworld/config/level0.json">
@@ -328,8 +835,12 @@ tabular Q-learning/SARSA converge quickly.
 
 - Moving into a rock or off the grid edge results in no movement (not an
   error, not a reset).
-- Moving into fire, or a monster moving into the agent's tile, is immediate
-  death and ends the episode.
+- Moving into fire is immediate death and ends the episode.
+- A monster moving into the agent's tile is immediate death and ends the episode.
+- The agent moving onto a monster's current tile is also immediate death and ends
+  the episode — this is an independent death condition, identical in effect to
+  fire contact, and is NOT prevented by step ordering. Both directions of
+  occupancy collision (monster-into-agent and agent-into-monster) must be checked.
 - Apples give `REWARD_APPLE`; picking one up removes it from the tile.
 - The key gives `REWARD_KEY` (0) and is only useful to open the chest.
 - The chest gives `REWARD_CHEST` only if the agent currently holds the key;
@@ -392,20 +903,17 @@ from collections import defaultdict
 class QTable:
     """Maps (state, action) -> float, defaulting unseen entries to 0.0.
 
-    TODO: implement as a thin wrapper around collections.defaultdict so
-    algorithms.py functions can call q_table[state][action] or
-    q_table.get(state, action) -- pick one interface and use it
-    consistently across q_learning_update/sarsa_update/expected_sarsa_update
-    and env-facing code in trainer.py.
+    Access pattern: q_table[state][action] is the ONLY supported interface.
+    Use q_table[state] to get the full list of Q-values for all actions at a
+    state, then index by action integer (e.g. q_table[state][action]).
+    The formerly present .values(state) method has been removed -- all
+    callers in trainer.py, compare_algorithms.py, and tests must use
+    q_table[state] instead.
     """
 
     def __init__(self, n_actions: int):
         self.n_actions = n_actions
         self._table: dict = defaultdict(lambda: [0.0] * n_actions)
-
-    def values(self, state) -> list[float]:
-        """Return the list of Q-values for all actions at `state`."""
-        return self._table[state]
 
     def __getitem__(self, state):
         return self._table[state]
@@ -619,7 +1127,12 @@ class GridWorldEnv:
     Mechanics this class must enforce EXACTLY per config/schema.md, and must
     NOT be altered by any helper function elsewhere in the codebase:
       - Moving into a rock or off-grid: no movement (not an error).
-      - Moving into fire, or a monster moving into the agent: death, episode ends.
+      - Moving into fire: death, episode ends immediately.
+      - A monster moving into the agent's tile: death, episode ends.
+      - The agent moving onto a monster's current tile: also death, episode
+        ends immediately. This is an independent, equally valid death path —
+        not an edge case, not prevented by step ordering. Both directions of
+        occupancy collision must be handled identically.
       - Apple pickup: REWARD_APPLE, tile cleared.
       - Key pickup: REWARD_KEY (0), sets an internal "has_key" flag.
       - Chest open: only if has_key, REWARD_CHEST, consumes the key.
@@ -638,13 +1151,35 @@ class GridWorldEnv:
 
     @staticmethod
     def _load_level(path: pathlib.Path) -> dict:
-        """Load and lightly validate a levelN.json file against the schema
-        documented in config/schema.md.
+        """Load and validate a levelN.json file against the schema documented
+        in config/schema.md.
 
-        TODO: json.load, validate required keys, return dict.
+        TODO: Implement as follows (do NOT use bare assertions -- raise
+        ValueError with a message that names the level file and the specific
+        problem so malformed levels fail loudly at load time, not as a
+        confusing KeyError/IndexError mid-training):
+
+          1. json.load the file.
+          2. Check all required top-level keys are present:
+               level_id, name, grid_size, agent_start, max_steps,
+               rocks, fire, apples, key, chest, monsters
+             Raise ValueError naming any missing key.
+          3. Check all coordinate values are within bounds:
+               [0, grid_size[0]) x [0, grid_size[1])
+             for: agent_start, every rock coordinate, every fire coordinate,
+             every apple coordinate, key (if not null), chest (if not null),
+             and every monster's "start" field.
+             Raise ValueError naming the out-of-bounds coordinate and field.
+          4. Check no two of {rocks, fire, apples, key, chest, monster starts}
+             occupy the same tile unless that is an intentional per-level
+             design choice (if so, note it explicitly in the level JSON's
+             "_notes" field and skip the overlap check for that tile).
+             Raise ValueError naming the overlapping tile and fields.
+          5. Return the validated dict.
         """
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
+
 
     def reset(self) -> tuple:
         """Reset to the level's initial state and return the initial state
@@ -662,14 +1197,18 @@ class GridWorldEnv:
           1. Move the agent (blocked by rocks/edges -> no movement).
           2. If the agent stepped onto fire -> death, episode ends here
              (monsters do not get to move this turn).
-          3. Resolve pickups (apple / key / chest) at the agent's new tile.
-          4. Check for a "collected everything" win condition.
-          5. If not already done, move each monster with probability
+          3. If the agent's new tile is occupied by a monster -> death,
+             episode ends here (monsters do not get to move this turn).
+             This is a normal, expected death path — the agent walked into
+             the monster. Do not skip this check or fold it into step 6.
+          4. Resolve pickups (apple / key / chest) at the agent's new tile.
+          5. Check for a "collected everything" win condition.
+          6. If not already done, move each monster with probability
              move_prob (0.4) in a random unblocked direction.
-          6. If a monster is now on the agent's tile (either it moved onto
-             the agent, or -- should not happen given step 1 -- the agent
-             moved onto it) -> death, episode ends.
-          7. Increment step counter; truncate if max_steps reached.
+          7. If a monster now occupies the agent's tile (the monster moved
+             onto the agent this turn) -> death, episode ends. (The reverse
+             case — agent moved onto monster — was already caught in step 3.)
+          8. Increment step counter; truncate if max_steps reached.
 
         TODO: implement, returning a StepResult.
         """
@@ -678,6 +1217,13 @@ class GridWorldEnv:
     def _resolve_monster_moves(self) -> None:
         """Give each monster its 0.4 chance to move one tile in a random
         currently-unblocked direction (rocks/edges block monsters).
+
+        If a monster has zero unblocked directions available (i.e. it is
+        fully surrounded by rocks and/or grid edges -- a reachable situation
+        given level4-6's 2x2 rock clusters near monster start positions), it
+        does not move that turn. This counts as the monster "not moving" for
+        the 0.4 roll -- do NOT crash on an empty choices list, and do NOT
+        retry the roll or move in a blocked direction.
 
         Kept as its own method so tests/test_monster_stochastic.py can
         call it directly with a seeded RNG and check the empirical move
@@ -720,12 +1266,15 @@ class IntrinsicRewardTracker:
         tracker = IntrinsicRewardTracker(strength=cfg.intrinsic_reward_strength)
         tracker.reset_episode()          # call at the start of EVERY episode
         for step in episode:
-            r_i = tracker.visit_and_get_bonus(state)   # call BEFORE or AFTER
-                                                          # env.step, but be
-                                                          # consistent about
-                                                          # which state (s or
-                                                          # s') is counted --
-                                                          # document the choice
+            r_i = tracker.visit_and_get_bonus(state)   # call with the state
+                                                          # BEFORE env.step (i.e.
+                                                          # current state s, not
+                                                          # next state s'); the
+                                                          # visit is recorded first,
+                                                          # then the bonus uses the
+                                                          # POST-visit count so the
+                                                          # very first visit yields
+                                                          # strength / sqrt(1).
             total_reward = env_reward + r_i
     """
 
@@ -745,10 +1294,22 @@ class IntrinsicRewardTracker:
 
     def visit_and_get_bonus(self, state) -> float:
         """Record a visit to `state` for the current episode, then return
-        strength / sqrt(n(s) + 1) using the count AFTER this visit is
-        recorded (or before -- pick one and be consistent; document the
-        choice here once decided, since it changes the very first visit's
-        bonus value).
+        the intrinsic bonus using the count AFTER this visit is recorded.
+
+        Implementation instruction: increment n(s) first, then return
+            strength / sqrt(n(s))
+        where n(s) is the post-increment count. The first visit yields
+        strength / sqrt(1) = strength, the second yields strength / sqrt(2),
+        and so on.
+
+        Note on the module-level formula: the module docstring writes the
+        same formula as  r_i = strength / sqrt(n(s) + 1)  using the
+        PRE-visit count. These are two equivalent ways to write the same
+        computation — post-increment n(s) equals (pre-visit n(s) + 1) on
+        every visit, not just the first. There is no difference in the
+        numeric result; choose whichever form is easier to read when
+        implementing, as long as both are consistent with the instruction
+        above.
 
         TODO: implement.
         """
@@ -984,6 +1545,7 @@ from __future__ import annotations
 
 import pathlib
 
+# pyrefly: ignore [missing-import]
 from algorithms import (
     QTable,
     epsilon_greedy,
@@ -992,6 +1554,7 @@ from algorithms import (
     q_learning_update,
     sarsa_update,
 )
+# pyrefly: ignore [missing-import]
 from env import GridWorldEnv
 from intrinsic import IntrinsicRewardTracker
 from logger import EpisodeLogger
@@ -1002,9 +1565,15 @@ CONFIG_DIR = pathlib.Path(__file__).resolve().parent.parent / "config"
 
 def load_training_config(level_id: int) -> dict:
     """Load config/training_config.json, merge the 'default' block with any
-    level_overrides for this level_id.
+    level_overrides for this level_id, and validate the result.
 
-    TODO: implement (json.load + dict merge).
+    TODO: implement (json.load + dict merge). Once the loading code is
+    written, add the following validation checks (raise ValueError naming
+    the offending key and value so misconfigurations fail loudly):
+      - alpha must be in (0, 1]  (learning rate; 0 is a no-op, > 1 diverges)
+      - gamma must be in (0, 1]  (discount factor; 0 ignores future rewards)
+      - epsilon_end must be <= epsilon_start, with both in [0, 1]
+      - episodes must be > 0
     """
     raise NotImplementedError
 
@@ -1268,6 +1837,23 @@ def test_monster_moving_onto_agent_causes_death():
 
     TODO: implement (may require forcing move_prob=1.0 and a fixed monster
     position in a synthetic level fixture to make this deterministic).
+    """
+    pytest.skip("TODO: implement once GridWorldEnv is implemented")
+
+
+def test_agent_moving_onto_monster_causes_death():
+    """Construct a scenario where the agent's own action moves it onto a tile
+    currently occupied by a monster -- the episode must end in death
+    immediately, before any monster movement occurs that turn.
+
+    This tests the second of the two monster-death conditions: the agent
+    walking into a monster (complement to test_monster_moving_onto_agent_causes_death
+    which tests the monster walking into the agent).
+
+    TODO: implement (may require forcing a monster to a fixed position and
+    directing the agent straight into it in a synthetic level fixture to make
+    this deterministic; monster movement should ideally be disabled for this
+    turn so the test isolates step 3 of the step() order of operations).
     """
     pytest.skip("TODO: implement once GridWorldEnv is implemented")
 </file>
@@ -1610,9 +2196,12 @@ class ArenaGymEnv(gym.Env):
 
         action_enum = action_enum_for_style(control_style)
         self.action_space = spaces.Discrete(len(action_enum))
-        # TODO: set correct low/high bounds once obs.py's normalization
-        # ranges are finalized -- using -1/1 or 0/1 as a placeholder range
-        # depending on each feature's normalization.
+        # Observation bounds are [-1, 1] for ALL features -- this is the
+        # decided, final normalization convention (not a placeholder).
+        # See arena/obs.py's OBSERVATION_SPEC for per-feature descriptions
+        # and the rescaling formula. Every feature is either naturally in
+        # [-1, 1] (sin/cos) or linearly rescaled from [0, 1] to [-1, 1]
+        # via x_normalized = 2 * x_unit - 1.
         self.observation_space = spaces.Box(
             low=-1.0, high=1.0, shape=(OBS_DIM,), dtype=np.float32
         )
@@ -1665,22 +2254,26 @@ from arena.entities import ArenaState
 
 # Index -> (name, description). Keep this in sync with build_observation's
 # actual output order -- tests/test_obs_shape.py checks the length matches.
+# Convention: ALL features are normalized to [-1, 1]. Features that are
+# naturally in [0, 1] (e.g. fractions, distances) are linearly rescaled to
+# [-1, 1] via x_normalized = 2 * x_unit - 1. sin/cos features are already
+# in [-1, 1] by definition. This matches the gym_adapter.py Box bounds.
 OBSERVATION_SPEC: list[tuple[str, str]] = [
-    ("player_x", "Player x position, normalized to arena width"),
-    ("player_y", "Player y position, normalized to arena height"),
-    ("player_vx", "Player x velocity, normalized to max speed"),
-    ("player_vy", "Player y velocity, normalized to max speed"),
-    ("player_orientation_sin", "sin(player orientation) -- only meaningful for ControlStyle1, 0 otherwise"),
-    ("player_orientation_cos", "cos(player orientation) -- only meaningful for ControlStyle1, 1 otherwise"),
-    ("player_health_frac", "Player health / max health, in [0, 1]"),
-    ("nearest_enemy_distance", "Distance to nearest enemy, normalized by arena diagonal"),
-    ("nearest_enemy_direction_sin", "sin(angle to nearest enemy) relative to player"),
-    ("nearest_enemy_direction_cos", "cos(angle to nearest enemy) relative to player"),
-    ("nearest_spawner_distance", "Distance to nearest active spawner, normalized"),
-    ("nearest_spawner_direction_sin", "sin(angle to nearest active spawner)"),
-    ("nearest_spawner_direction_cos", "cos(angle to nearest active spawner)"),
-    ("current_phase_frac", "Current phase number / max expected phase, roughly normalized"),
-    ("num_active_enemies_frac", "Count of active enemies / an assumed max, clipped to [0, 1]"),
+    ("player_x", "Player x position, normalized to [-1, 1] across arena width"),
+    ("player_y", "Player y position, normalized to [-1, 1] across arena height"),
+    ("player_vx", "Player x velocity, normalized to [-1, 1] relative to max speed"),
+    ("player_vy", "Player y velocity, normalized to [-1, 1] relative to max speed"),
+    ("player_orientation_sin", "sin(player orientation), in [-1, 1]; 0 if ControlStyle2"),
+    ("player_orientation_cos", "cos(player orientation), in [-1, 1]; 1 if ControlStyle2"),
+    ("player_health_frac", "Player health / max health, rescaled [0,1] -> [-1,1]"),
+    ("nearest_enemy_distance", "Dist to nearest enemy / arena diagonal, rescaled [0,1] -> [-1,1]"),
+    ("nearest_enemy_direction_sin", "sin(angle to nearest enemy) relative to player, in [-1, 1]"),
+    ("nearest_enemy_direction_cos", "cos(angle to nearest enemy) relative to player, in [-1, 1]"),
+    ("nearest_spawner_distance", "Nearest spawner dist / arena diagonal, rescaled [0,1]->[-1,1]"),
+    ("nearest_spawner_direction_sin", "sin(angle to nearest active spawner), in [-1, 1]"),
+    ("nearest_spawner_direction_cos", "cos(angle to nearest active spawner), in [-1, 1]"),
+    ("current_phase_frac", "Current phase / max expected phase, rescaled [0,1] -> [-1,1]"),
+    ("num_active_enemies_frac", "Active enemies / assumed max clipped [0,1], rescaled->[-1,1]"),
 ]
 
 OBS_DIM = len(OBSERVATION_SPEC)
@@ -1927,6 +2520,18 @@ shooting with no enemy in range, to discourage spamming the shoot action.
 Defaults to 0.0 (disabled) -- only enable this with a documented
 justification, since an undocumented shaping term is worse for the report
 than not having one."""
+
+SHOT_NO_TARGET_RADIUS: float = 150.0
+"""Distance threshold (in arena world units) beyond which the nearest enemy
+is not considered a valid target for R_SHOOT_WHILE_NO_TARGET purposes.
+A shot fired when the nearest enemy is farther than this value sets
+"shot_fired_with_no_target" in step_events (see rewards.py).
+
+TODO: tune once arena scale is confirmed. The placeholder value of 150.0 is
+roughly 0.3 × the diagonal of a 400×400 arena
+(diagonal ≈ 566 units → 0.3 × 566 ≈ 170; 150 is a conservative starting
+point). Adjust to match the actual ARENA_WIDTH / ARENA_HEIGHT values in
+core_env.py once those are implemented."""
 </file>
 
 <file path="part2_arena/arena/rewards.py">
@@ -1950,6 +2555,7 @@ from arena.rewards_config import (
     R_KILL_SPAWNER,
     R_PHASE_PROGRESS,
     R_SHOOT_WHILE_NO_TARGET,
+    SHOT_NO_TARGET_RADIUS,
 )
 
 
@@ -1996,6 +2602,13 @@ def compute_reward(step_events: dict) -> RewardBreakdown:
             "distance_delta_to_nearest_enemy": float,   # negative = got closer
             "shot_fired_with_no_target": bool,
         }
+    "shot_fired_with_no_target" means no enemy was within the detection
+    radius at the moment the shot was fired -- NOT "zero enemies exist
+    anywhere in the arena." Specifically: if the distance to the nearest
+    enemy exceeds SHOT_NO_TARGET_RADIUS (defined in rewards_config.py;
+    see its docstring for the tuning TODO and scale rationale), the shot
+    counts as having no target regardless of how many enemies are alive
+    elsewhere in the arena.
     The exact key set is up to the implementer -- document it here once
     finalized, since core_env.py must produce exactly this shape.
 
@@ -2392,6 +3005,11 @@ def test_observation_has_fixed_shape():
 def test_observation_has_no_nans_or_infs():
     """Especially check the zero-enemies / zero-spawners edge case, where a
     naive nearest-distance calculation could divide by zero or return NaN.
+    Once implemented, this test should also assert that every value in the
+    returned array falls within [-1, 1] (the decided normalization convention
+    for all features; see obs.py's OBSERVATION_SPEC and the rescaling formula
+    there). Both the NaN/Inf check and the bounds check must pass for any
+    valid arena state, including degenerate cases with no enemies/spawners.
 
     TODO: implement.
     """
@@ -2618,317 +3236,6 @@ if __name__ == "__main__":
     main()
 </file>
 
-<file path="assessment_requirements_summary.md">
-# Assessment Requirements Summary — Reinforcement Learning Project
-
-**Total Points: 40**
-
-## Overview
-
-This is a two-part reinforcement learning project focused on building autonomous systems, with applications to robotics, self-driving cars, drone navigation, warehouse automation, adaptive game AI, traffic control, and simulation-based training.
-
-- **Part I** — Classical value-based RL (Q-learning, SARSA) in a visual Pygame gridworld.
-- **Part II** — Deep RL (Stable Baselines3) in a real-time Pygame arena.
-
-By the end, you must demonstrate: designed simulation environments, defined state/reward models, trained agents, analysis of learning behavior via logs, and visual demonstrations of intelligent behavior.
-
----
-
-## Part I — Classical Reinforcement Learning (20 pts)
-
-### General Requirements
-- Gridworld must be implemented **and visually rendered in Pygame** — must support interaction and animation.
-- **Console/text-based displays are NOT permitted.**
-- Multiple levels with different layouts are required.
-- Helper functions are allowed, but **rewards and mechanics must not be altered**.
-
-### Gridworld Rules
-- Agent movement: up, down, left, right.
-- Rocks block movement (attempting to move into one results in no movement).
-- Fire or monsters cause **immediate death** on contact.
-- Apples give **+1 reward**.
-- Keys give **no reward** but allow opening chests.
-- Opening a chest gives **+2 reward**.
-- Episode ends when all collectible rewards are obtained **or** the agent dies.
-- After each agent action, monsters (if present) have a **40% chance to move**.
-
-### Task 1: Basic Q-Learning (Level 0)
-- Level 0 contains only apples, positioned on the right side of the map.
-- Requirements:
-  - Epsilon-greedy policy for action selection.
-  - Correct Q-learning update rule (off-policy, using max over next-state actions).
-  - Linear epsilon decay from `epsilonStart` to `epsilonEnd` (config-driven).
-  - Random tie-breaking when multiple actions share the best Q-value.
-  - Must demonstrate a learned shortest-path policy to the apples.
-- Training parameters (episodes, alpha, gamma, epsilon ranges) will be supplied via a config file.
-
-### Task 2: Basic SARSA (Level 1)
-- Implement SARSA using **on-policy** updates (uses the actually chosen next action, not the max).
-- Use the **same exploration schedule** as Q-learning.
-- Must demonstrate that the SARSA policy **differs from Q-learning** — typically more conservative around hazards — with a short comparison.
-
-### Task 3: Extend Q-Learning & SARSA to Levels 2–3
-- These levels introduce:
-  - Multiple apples
-  - A key
-  - A chest
-- Both algorithms must run correctly with correct episode termination and reward accounting.
-
-### Task 4: Monster Levels (Levels 4–5)
-- Implement:
-  - Monsters that move after each agent action.
-  - Probabilistic movement (e.g., 40% chance to move).
-  - Simple movement pattern (e.g., random choice among allowed directions).
-  - Player dies if it enters a monster's tile or a monster moves into the player.
-- RL requirements:
-  - Q-learning and SARSA must handle **stochastic transitions**.
-  - Agent should learn to avoid monsters while still completing objectives.
-- Evidence to include:
-  - Working monster movement in the gridworld.
-  - Training curves showing learning behavior on Levels 4 and 5.
-
-### Task 5: Intrinsic Reward (Level 6)
-- Intrinsic reward formula:
-  - `r_i = intrinsicRewardStrength / sqrt(n(s) + 1)`
-  - where `n(s)` = number of visits to the current state during the episode.
-  - Total reward = environment reward + intrinsic reward.
-- Requirements:
-  - Environment rewards must remain unchanged.
-  - Maintain a **per-episode** visit counter for each state.
-  - Agent must incorporate intrinsic reward into Q-learning/SARSA updates.
-- Evidence to include in the report:
-  - Training curves comparing learning with vs. without intrinsic reward.
-  - Short explanation of the observed improvement.
-
----
-
-## Part II — Deep Reinforcement Learning in a Pygame Arena (20 pts)
-
-Design and build a real-time, visually animated Pygame arena, and train deep RL agents in it using **Stable Baselines3**. The agent learns from a continuous observation vector using a neural-network-based algorithm.
-
-### 1. Environment Requirements
-The arena must include:
-- A controllable player ship with movement and shooting.
-- Enemy spawners that periodically create enemies.
-- Enemies that navigate toward the player.
-- Player health and enemy health systems.
-- Projectile collisions.
-- A **phase system**: destroying all active spawners progresses the simulation to the next difficulty level.
-- Must feel like a simplified action arena (continuous/semi-continuous movement), **not** a tile-based grid.
-- All elements must be visually rendered.
-- Episode ends when:
-  - The player dies, **or**
-  - A maximum time/step count is reached.
-
-### 2. Gym-Style API
-Must expose:
-- `reset()` → returns initial observation.
-- `step(action)` → returns `(observation, reward, done, info)`.
-- `render()` → displays the scene for evaluation.
-
-### 3. Observation Design
-Fixed-size numeric feature vector including at minimum:
-- Player position
-- Player velocity
-- Player orientation (if relevant)
-- Distance and relative direction to nearest enemy
-- Distance and relative direction to nearest spawner
-- Player health
-- Current phase
-- **No pixels/screenshots** — use numeric feature vectors, fixed size.
-
-### 4. Action Sets
-Must implement **two distinct control schemes**, each with its own trained agent:
-
-**Control Style 1 — Rotation + Thrust**
-- No action
-- Thrust forward
-- Rotate left
-- Rotate right
-- Shoot
-
-**Control Style 2 — Direct Directional Movement**
-- No action
-- Move up
-- Move down
-- Move left
-- Move right
-- Shoot
-
-- Each control style needs its own trained model **and** its own evaluation script.
-
-### 5. Reward Function
-Must include (at minimum):
-- Positive reward for destroying enemies.
-- Larger positive reward for destroying spawners.
-- Positive reward for progressing to the next phase.
-- Negative reward when taking damage.
-- Strong negative reward on death.
-- Any optional/additional shaping rewards must be **justified**.
-
-### 6. Deep RL Training
-- Use **Stable Baselines3** with **DQN** or **PPO**.
-- Neural network must have at least one hidden layer (MLP).
-- Train while logging results to **TensorBoard**.
-- Hyperparameters must be tuned meaningfully (not left at defaults only).
-- Save trained models in a folder named `models`.
-- Provide an evaluation script that can visually play the agent in the arena.
-
----
-
-## Report Requirements (10 pts)
-
-- **Strict maximum length: 10 pages**, including images, **no appendix** (anything beyond page 10 will not be considered).
-- Must include:
-  1. Description of both environments.
-  2. Observation design (what each feature means and why it was chosen).
-  3. Reward design (explained and justified, including any shaping).
-  4. Hyperparameter exploration (with evidence, e.g., tables/plots).
-  5. Comparison of the two control sets, with evidence (curves/screenshots/logs).
-  6. Evidence of training with logs and screenshots.
-  7. Originality justification.
-  8. Student numbers and a contribution summary for all team members.
-  9. A link to the video recording demonstration.
-
----
-
-## Submission Requirements (STRICT)
-
-You must submit **exactly 2 items**:
-
-1. **A link to a zip file** containing:
-   - All gridworld code
-   - Arena simulation code
-   - RL training scripts
-   - Saved models
-   - TensorBoard logs
-2. **Your report PDF**, including:
-   - All student numbers and a contribution summary
-   - A link to the video recording demonstration
-
-> Note: the actual zip file must also be uploaded to Canvas per the "Submission Instructions" section.
-
-### Late Submission Policy
-- 10% penalty per calendar day late.
-- Notify the teaching team if submitting late so the correct version is downloaded.
-- Special consideration information is available via RMIT's official page.
-
----
-
-## Video Demonstration Requirements
-
-- **Maximum length: 10 minutes.**
-- **All team members must appear** and present at least one part.
-- Upload to YouTube (unlisted) or university OneDrive; link it in the PDF report.
-
-### Must Show — Part I (Gridworld)
-- The gridworld visible in a Pygame window.
-- The agent running with Q-learning or SARSA on one level.
-- Monsters/items behaving correctly (if applicable to the level shown).
-- Evidence the agent is following its **learned policy**, not acting randomly.
-
-### Must Show — Part II (Arena)
-- The real-time Pygame arena running visually.
-- The trained deep RL agent controlling the player.
-- Enemies spawning and moving.
-- Projectiles and collisions functioning.
-- At least one phase progression occurring.
-- Learned behavior demonstrated for **both** control schemes (two short clips acceptable).
-
-### Acceptability Requirements
-- Environment and agent behavior must match the submitted code.
-- Models shown must be the same ones included in the repository.
-- Must show actual gameplay — not static screens.
-
----
-
-## Reuse Policy
-You may reuse code or materials from previous assignments or tutorials.
-
----
-
-## Appendix: Technical Feasibility Guide (Not Mandatory, but Recommended)
-
-### Gridworld
-- Grid size: ~10×10 or 12×12.
-- Use simple Pygame shapes.
-- Q-learning/SARSA should run quickly.
-
-### Arena Simulation
-- Window size: ~800×600 or 960×680.
-- Clear shapes for players, enemies, bullets.
-- Keep enemy count/spawner frequency manageable.
-- Physics should remain simple.
-- Render only during evaluation, not during long training runs.
-
-### Observation Vector
-- ~10–30 float features.
-- Fixed size.
-- No pixels/images.
-
-### RL Training
-- Use Stable Baselines3.
-- Small MLP networks.
-- Train headless for speed.
-- Typical total training: 100,000–600,000 timesteps.
-- Use TensorBoard for monitoring.
-
----
-
-## Learning Objectives Assessed
-- **CLO1**: Apply various AI techniques and tools in the context of games.
-- **CLO3**: Work effectively in a team environment to develop a complex software system.
-
----
-
-## Grading Rubric Breakdown (Total: 40 pts)
-
-| Section | Criteria | Points |
-|---|---|---|
-| Part I-A | Gridworld implementation & rules (visual/animated/interactive; mechanics match spec) | 2 |
-| Part I-B | Task 1: Q-learning (epsilon-greedy, correct update rule, linear decay, tie-breaking, shortest-path evidence) | 2.5 |
-| Part I-C | Task 2: SARSA (on-policy update, same exploration schedule, comparison vs Q-learning) | 3 |
-| Part I-D | Task 3: Levels 2–3 (multiple apples, key, chest; correct termination/reward accounting) | 3 |
-| Part I-F | Task 5: Intrinsic reward (correct formula, unchanged env rewards, per-episode visit counter, training curve comparison + explanation) | 3 |
-| Part II-G | Arena environment requirements (real-time, animated; core gameplay; health/phase systems; episode-end conditions) | 4.5 |
-| Part II-H | Gym-style API + observation design (reset/step/render; fixed-size vector with required features) | 2.5 |
-| Part II-I | Two control schemes + models (both control styles; separate trained/saved models; separate evaluation scripts) | 4 |
-| Part II-J | Reward design & deep RL training quality (reward structure; SB3 with DQN/PPO + TensorBoard logging; meaningful hyperparameter tuning) | 3 |
-| Report | Page limit, environment/observation/reward descriptions, hyperparameter exploration, control-set comparison, originality justification | 2.5 |
-| Video Demo | ≤10 min, all members present, gridworld + arena shown, learned policy evidence, both control schemes shown | 5 |
-| Creativity | Going beyond expected requirements | 5 |
-
-**Note:** Part I Task 4 (Monster Levels) is described in detail in the task list but does not appear as a separately labeled rubric row in the provided rubric — its evidence (monster behavior, stochastic transition handling, training curves) likely factors into the Part I-D/general implementation criteria; confirm with your instructor if unclear.
-
----
-
-## Academic Integrity
-- Standard RMIT academic integrity expectations apply.
-- Properly acknowledge and reference all external words, data, diagrams, models, frameworks, and ideas (including internet sources).
-- Plagiarism includes failure to document sources, copying material from the internet/databases, and collusion between students.
-- This is treated as serious misconduct.
-
-## Note on Spec Changes
-This assignment specification may be corrected after release (to fix mistakes or add information). Any corrected version will be uploaded to Canvas with an announcement — check for updates.
-</file>
-
-<file path="CONTRIBUTIONS.md">
-# Contributions
-
-Fill this in as work happens, not just at the end — it gets copy-pasted into
-the report (required section: "student numbers and a contribution summary for
-all team members").
-
-| Student Number | Name | Contribution Summary |
-|---|---|---|
-| TODO | TODO | TODO |
-| TODO | TODO | TODO |
-
-## Detailed log (optional, useful for resolving disputes / writing the summary above)
-
-- YYYY-MM-DD — who — what (e.g. "implemented Q-learning update rule + tests").
-</file>
-
 <file path="requirements.txt">
 # Project-wide dependencies for both Part I (gridworld) and Part II (arena).
 # Pin versions once you start implementing, to keep training runs reproducible
@@ -2944,628 +3251,70 @@ matplotlib>=3.8
 pytest>=8.0
 </file>
 
-<file path="RUBRIC_MAP.md">
-# Rubric Map
+<file path="README.md">
+# RL Assignment — Gridworld (Part I) + Deep RL Arena (Part II)
 
-Every module/function below is mapped to the exact rubric row it satisfies
-(point values from the assignment's 40-point breakdown table). Use this to
-self-grade before submitting — if a row has no evidence yet, it's not done.
+Two-part reinforcement learning project (RMIT, 40% assessment):
 
-| Rubric Row | Points | Satisfied By | Status |
-|---|---|---|---|
-| Part I-A — Gridworld implementation & rules (visual/animated/interactive; mechanics match spec) | 2 | `part1_gridworld/src/env.py`, `render.py`, `menu.py` | TODO |
-| Part I-B — Task 1: Q-learning (epsilon-greedy, correct update, linear decay, tie-breaking, shortest-path evidence) | 2.5 | `part1_gridworld/src/algorithms.py` (`epsilon_greedy`, `q_learning_update`), `config/level0.json`, `config/training_config.json`, `tests/test_algorithms.py`, `tests/test_tie_breaking.py` | TODO |
-| Part I-C — Task 2: SARSA (on-policy update, same exploration schedule, comparison vs Q-learning) | 3 | `part1_gridworld/src/algorithms.py` (`sarsa_update`), `config/level1.json`, `src/compare_algorithms.py` | TODO |
-| Part I-D — Task 3: Levels 2-3 (multiple apples, key, chest; correct termination/reward accounting) | 3 | `config/level2.json`, `config/level3.json`, `src/env.py`, `tests/test_env_rules.py` | TODO |
-| Part I (Task 4, folded into I-D/general) — Monster levels 4-5 (stochastic movement, avoidance learning, training curves) | (see note below) | `config/level4.json`, `config/level5.json`, `src/env.py` (monster movement), `tests/test_monster_stochastic.py`, `src/plot_results.py` | TODO |
-| Part I-F — Task 5: Intrinsic reward (correct formula, unchanged env rewards, per-episode visit counter, curve comparison + explanation) | 3 | `src/intrinsic.py`, `config/level6.json`, `tests/test_intrinsic_reward.py`, `src/plot_results.py` | TODO |
-| Part II-G — Arena environment requirements (real-time, animated; core gameplay; health/phase systems; episode-end conditions) | 4.5 | `part2_arena/arena/core_env.py`, `entities.py`, `physics.py`, `phases.py`, `render_pygame.py` | TODO |
-| Part II-H — Gym-style API + observation design (reset/step/render; fixed-size vector with required features) | 2.5 | `arena/core_env.py` (literal 4-tuple API), `arena/gym_adapter.py` (SB3 5-tuple), `arena/obs.py`, `tests/test_env_api.py`, `tests/test_obs_shape.py` | TODO |
-| Part II-I — Two control schemes + models (both control styles; separate trained/saved models; separate evaluation scripts) | 4 | `arena/actions.py`, `scripts/train.py --style {1,2}`, `scripts/eval_style1.py`, `scripts/eval_style2.py`, `models/` | TODO |
-| Part II-J — Reward design & deep RL training quality (reward structure; SB3 DQN/PPO + TensorBoard; meaningful hyperparameter tuning) | 3 | `arena/rewards_config.py`, `arena/rewards.py`, `scripts/train.py`, `tests/test_reward_terms.py`, `logs/` (TensorBoard) | TODO |
-| Report — page limit, environment/observation/reward descriptions, hyperparameter exploration, control-set comparison, originality justification | 2.5 | `report/report_template.md`, `report/figures/`, `scripts/generate_report_tables.py` | TODO |
-| Video Demo — <=10 min, all members present, gridworld + arena shown, learned-policy evidence, both control schemes shown | 5 | `VIDEO_SCRIPT.md` | TODO |
-| Creativity — going beyond expected requirements | 5 | (a) `part2_arena/scripts/compare_ppo_dqn.py`; (b) `part2_arena/scripts/plot_reward_decomposition.py`; (c) `part2_arena/arena/phases.py` curriculum hook + `train.py --curriculum`; (d) `part1_gridworld/src/algorithms.py::expected_sarsa_update` + `src/compare_algorithms.py` | TODO |
+- **Part I** (`part1_gridworld/`) — classical value-based RL (Q-learning, SARSA,
+  and Expected SARSA as a creativity extension) in a visually rendered Pygame
+  gridworld, across 7 levels of increasing complexity.
+- **Part II** (`part2_arena/`) — deep RL (Stable-Baselines3, PPO/DQN) controlling
+  a ship in a real-time Pygame arena, under two distinct control schemes.
 
-**Note on Task 4 (Monster Levels):** the spec's rubric table doesn't give
-monster levels a separately labeled row — its evidence (monster behavior,
-stochastic transition handling, training curves) is treated here as folded
-into Part I-D and the general Part I-A implementation quality. Confirm with
-the instructor if this is graded separately.
+See `assessment_requirements_summary.md` (project root, one level up from here
+if you're reading this inside `project/`) for the authoritative spec and
+rubric, and `RUBRIC_MAP.md` for how each file here maps to rubric points.
 
-## How to use this file
+## Status
 
-Update the `Status` column as each piece lands (`TODO` -> `IN PROGRESS` ->
-`DONE`, with a short note or commit reference). Before submission, every row
-must be `DONE` with a pointer to the evidence (script output, plot, test
-pass) referenced in the report.
-</file>
+Skeleton only. See TODOs in each module. Nothing is implemented yet.
 
-<file path="scaffold_prompt_v2.md">
-# Scaffold Prompt v2 — RL Assignment Codebase
-
-Paste the fenced prompt below into Claude Code (or another coding agent) to scaffold
-the project skeleton. This is a revision of `scaffold_prompt.md`, corrected against
-`assessment_requirements_summary.md` (the authoritative spec/rubric) and expanded to
-cover gaps the v1 scaffold left out: the report, video demo, submission, and team
-contribution artifacts, plus a resolved Gym-API conflict and four committed creativity
-hooks. Skeleton only — no logic implementation yet.
-
-## What changed vs. v1 (and why)
-
-1. **Report/video/submission are now first-class scaffold artifacts**, not an
-   afterthought. The rubric gives them 2.5 + 5 + (implicit, via the zip) points and v1
-   had zero scaffolding for them — a strict 10-page/no-appendix report and a ≤10-minute
-   video with per-member speaking requirements are easy to get wrong under deadline
-   pressure without a template that already has the sections and shot list laid out.
-2. **Gym API conflict resolved explicitly.** The spec's own wording for Part II
-   (`step(action) -> (observation, reward, done, info)`) is the legacy Gym 4-tuple, but
-   Stable-Baselines3 requires Gymnasium's 5-tuple (`terminated`/`truncated` split).
-   Per your direction to treat the requirements doc as the strict source of truth: the
-   core environment class implements the **literal 4-tuple API from the spec**
-   (this is what satisfies the rubric's "Gym-style API" row), and a separate thin
-   adapter module wraps it in Gymnasium's 5-tuple API purely so Stable-Baselines3 can
-   train against it. Neither file lies about what it is.
-3. **Two fully separate evaluation scripts** (`eval_style1.py`, `eval_style2.py`)
-   instead of one `--style` flag, matching the rubric's literal "its own evaluation
-   script" wording with no ambiguity for the grader.
-4. **All four creativity angles get real hooks**: PPO vs. DQN ablation, reward
-   decomposition dashboard, curriculum learning for phases, and Expected SARSA in
-   Part I. Each is independently runnable — you are not forced to execute the full
-   cross-product of style × algo × curriculum to get value from any one of them.
-5. **Team artifacts added**: `CONTRIBUTIONS.md` (student numbers + contribution
-   summary, required in the PDF) and `VIDEO_SCRIPT.md` (a timestamped shot list mapped
-   to the rubric's "Must Show" checklist, with a slot for who presents each segment).
-6. **Level configs enumerated explicitly** (`level0.json` … `level6.json`, 7 total)
-   instead of a generic `config/` folder, since the spec ties each level number to a
-   specific task and rubric row.
-7. **`generate_report_tables.py` promoted to project root** and reads reward
-   constants from *both* parts, so there is exactly one script that keeps the report's
-   reward tables in sync with the code for the whole project, not just Part II.
-8. **Reward immutability made testable in Part I too**: a `rewards_constants.py`
-   single-source-of-truth file (mirroring Part II's `rewards_config.py`) plus a test
-   asserting apples=+1, keys=0, chests=+2 never drift — directly defends the "helper
-   functions allowed but rewards/mechanics must not be altered" rule.
-
----
-
-## PROMPT
+## Setup
 
 ```
-You are a senior software engineer specializing in game AI and reinforcement
-learning, working with a small student team on a graded assignment. Scaffold a
-complete Python codebase skeleton (folders, empty/stub files with docstrings,
-function signatures, and clear TODOs — do NOT implement full logic yet) for a
-two-part RL assignment.
-
-PART I: Classical Gridworld (Pygame) with Q-learning, SARSA, and Expected SARSA
-PART II: Real-time Arena (Pygame) with Deep RL via Stable-Baselines3 (PPO + DQN)
-
-This is a team submission. Treat the report, video, and submission packaging as
-first-class deliverables, not afterthoughts — they carry real rubric points.
-
-=== FUNCTIONAL REQUIREMENTS — PART I (must match exactly, nothing missing) ===
-
-General:
-- Rendered in Pygame, animated, interactive. Console/text display is NOT permitted.
-- 7 levels total, each mapped to a specific task:
-  - level0.json — Task 1 (Q-learning): apples only, positioned on the right side.
-  - level1.json — Task 2 (SARSA): apples only, DIFFERENT layout from level0, with
-    enough hazard exposure (rocks/fire) that a Q-learning vs. SARSA behavioral
-    comparison near hazards is meaningful. (The spec requires SARSA to look "more
-    conservative around hazards" — design this level so that claim is testable.)
-  - level2.json, level3.json — Task 3: multiple apples, a key, a chest each, two
-    DIFFERENT layouts.
-  - level4.json, level5.json — Task 4: monster levels, two DIFFERENT layouts.
-  - level6.json — Task 5: intrinsic reward level (reuse a level4/5-style layout).
-- Mechanics (fixed, must not be altered by helper functions):
-  - 4-directional movement (up/down/left/right).
-  - Rocks block movement (moving into one = no movement, not an error/crash).
-  - Fire or monsters cause immediate death on contact.
-  - Apples: +1 reward. Keys: 0 reward (unlock chests only). Chests: +2 reward,
-    only openable if the agent holds a key.
-  - Episode ends when ALL collectible rewards are obtained OR the agent dies.
-  - After each agent action, each monster has a 40% chance to move, choosing
-    randomly among its currently-allowed directions.
-- Task 1 (Q-learning): epsilon-greedy action selection; off-policy update using
-  max over next-state actions; LINEAR epsilon decay from epsilonStart to
-  epsilonEnd, config-driven; random tie-breaking among equal-best Q-values;
-  must demonstrably learn a shortest-path policy to the apples.
-- Task 2 (SARSA): on-policy update using Q(s', a') where a' is the action
-  ACTUALLY chosen by the current policy (not max); same exploration schedule as
-  Q-learning; produce a short, evidenced comparison showing behavioral
-  divergence from Q-learning.
-- Task 3: both algorithms extended to levels 2-3 with correct termination and
-  reward accounting when multiple apples + a key + a chest are present.
-- Task 4: both algorithms must handle the monsters' stochastic transitions
-  correctly and learn to avoid them while still completing objectives; capture
-  training curves for levels 4 and 5.
-- Task 5 (Level 6, intrinsic reward): r_i = intrinsicRewardStrength / sqrt(n(s)+1)
-  where n(s) is the visit count for the CURRENT state DURING THE CURRENT EPISODE
-  ONLY (reset every episode). Environment reward is unchanged; the update target
-  uses env_reward + r_i. Produce training curves comparing with vs. without
-  intrinsic reward, plus a short explanation of the observed effect.
-- Creativity hook (Expected SARSA): implement a third tabular update
-  (expected value over the policy's action distribution, not max and not the
-  sampled next action) and compare all three algorithms' learning curves on the
-  same hazard-containing level (reuse level4 or level5).
-- Training hyperparameters (episodes, alpha, gamma, epsilonStart, epsilonEnd,
-  intrinsicRewardStrength, max_steps_per_episode) come from a config file, not
-  hardcoded.
-
-=== FUNCTIONAL REQUIREMENTS — PART II (must match exactly, nothing missing) ===
-
-Environment:
-- Real-time, continuously animated Pygame arena — must NOT feel like a tile grid.
-- Controllable player ship (movement + shooting), enemy spawners that
-  periodically create enemies, enemies that navigate toward the player, player
-  health, enemy health, projectile collisions, a phase system where destroying
-  all currently-active spawners advances difficulty.
-- All elements visually rendered.
-- Episode ends on player death OR a max time/step count.
-
-Gym-style API — IMPORTANT, read carefully:
-- The core environment class (`arena/core_env.py`) must implement the API
-  EXACTLY as the assignment spec describes it, literally:
-    reset() -> observation
-    step(action) -> (observation, reward, done, info)
-    render() -> displays the scene
-  This class must have ZERO dependency on gymnasium/gym and ZERO dependency on
-  stable-baselines3. It is the thing that satisfies the rubric's "Gym-style API"
-  requirement on its own literal terms.
-- Because Stable-Baselines3 requires Gymnasium's 5-tuple step contract
-  (terminated/truncated split, not a single done flag), add a SEPARATE adapter
-  module `arena/gym_adapter.py` that wraps `core_env` in a real
-  `gymnasium.Env` subclass for training/eval purposes only. It must derive
-  `terminated` (player died) and `truncated` (max steps hit) from the core
-  env's single `done` + its termination reason, without changing core_env's
-  own literal signature. Document in both files' docstrings why this split
-  exists and which one satisfies which requirement.
-
-Observation (fixed-size numeric vector, 10-30 floats, NO pixels/screenshots):
-- Player position, player velocity, player orientation (if relevant to the
-  control style), distance + relative direction to nearest enemy, distance +
-  relative direction to nearest spawner, player health, current phase.
-- Document each vector index's meaning and justification in `arena/obs.py`.
-
-Two control schemes, each with its own trained model AND its own evaluation
-script (do not share one parametrized eval script between them):
-- Style 1 — Rotation + Thrust: No-op, Thrust forward, Rotate left,
-  Rotate right, Shoot.
-- Style 2 — Direct Directional: No-op, Up, Down, Left, Right, Shoot.
-
-Reward (single source of truth in `arena/rewards_config.py`, computed only in
-`arena/rewards.py` — no inline reward math anywhere else):
-- Positive for destroying an enemy; larger positive for destroying a spawner;
-  positive for advancing to a new phase; negative when taking damage; strong
-  negative on death.
-- Cap total shaping terms at 6-8, each a named constant (e.g. R_KILL_ENEMY,
-  R_KILL_SPAWNER, R_PHASE_PROGRESS, R_DAMAGE_TAKEN, R_DEATH, plus up to 2
-  optional shaping terms). Every term needs a one-line docstring justification
-  and must be logged to TensorBoard as a separate scalar (reward decomposition)
-  — this also feeds the creativity dashboard below.
-
-Deep RL training:
-- Stable-Baselines3, PPO and/or DQN (both are wired up — see creativity hooks),
-  MLP with at least one hidden layer, TensorBoard logging, meaningfully tuned
-  hyperparameters (not left at library defaults), models saved under `models/`.
-- Render only during evaluation, not during long training runs.
-
-=== ARCHITECTURE PRINCIPLES (mandatory) ===
-
-1. Strict separation of concerns: environment/game logic never imports pygame
-   and knows nothing about the training loop. Rendering is its own module that
-   receives state and draws it. The training loop wires env + rendering +
-   logging together.
-2. Single source of truth for ALL reward/mechanic constants, in BOTH parts:
-   - Part I: `part1_gridworld/config/rewards_constants.py`
-     (REWARD_APPLE=+1, REWARD_KEY=0, REWARD_CHEST=+2, plus death handling).
-   - Part II: `part2_arena/arena/rewards_config.py`.
-   - `scripts/generate_report_tables.py` at the PROJECT ROOT reads BOTH files
-     and auto-generates Markdown/LaTeX tables into `report/figures/` — the
-     report must never drift out of sync with the code, for either part.
-3. No dead code: if a rewards/algorithms module exists, it must actually be
-   called from env.py/trainer.py — never written then bypassed by inline logic.
-4. Reproducibility: a small `seed_utils.py` (Part I) setting Python/NumPy seeds
-   so training runs are reproducible for the report and demo.
-5. Config-driven, not hardcoded: level layouts as JSON with a documented
-   schema (`part1_gridworld/config/schema.md`); Part I training hyperparameters
-   in a single `training_config.json`.
-6. Unit tests (pytest):
-   - Part I: correct Q-learning update, correct SARSA update, correct Expected
-     SARSA update, correct intrinsic reward formula (including per-episode
-     reset of n(s)), the "keys give no reward" rule, rocks block movement,
-     fire/monster instant death, episode termination (death OR all rewards),
-     random tie-breaking distribution, and monster 40% movement probability
-     (statistical test over many trials).
-   - Part II: `core_env` literally satisfies the spec's 4-tuple contract;
-     `gym_adapter` literally satisfies Gymnasium's 5-tuple contract; each
-     reward term fires independently and correctly; observation vector has a
-     fixed shape, no NaNs, and documented bounds.
-7. `requirements.txt` at the project root pinning pygame, numpy, gymnasium,
-   stable-baselines3, torch, tensorboard, matplotlib, pytest.
-8. `RUBRIC_MAP.md`: every module/function mapped to the exact rubric row it
-   satisfies, WITH that row's point value (pull the point values from the
-   40-point breakdown table in the assignment spec) so the team can self-grade
-   before submitting.
-
-=== CREATIVITY HOOKS (scaffold all four; each independently runnable) ===
-
-a) PPO vs. DQN ablation (`part2_arena/scripts/train.py` supports
-   `--algo {ppo,dqn}`; `part2_arena/scripts/compare_ppo_dqn.py` trains/reads
-   TensorBoard logs for both on the SAME control style/observation/reward and
-   plots convergence speed, stability, and sample efficiency side by side).
-b) Reward decomposition dashboard (`part2_arena/scripts/
-   plot_reward_decomposition.py` reads the per-term TensorBoard scalars from
-   principle 6/req 5-above and renders a stacked-area chart of each reward
-   term's contribution over training time).
-c) Curriculum learning for phases (`part2_arena/arena/phases.py` includes a
-   curriculum hook that ramps enemy speed/spawn rate as phases clear;
-   `train.py --curriculum {on,off}` trains both variants for a learning-speed
-   comparison).
-d) Expected SARSA in Part I (`part1_gridworld/src/algorithms.py` adds
-   `expected_sarsa_update`; `part1_gridworld/src/compare_algorithms.py` runs
-   Q-learning, SARSA, and Expected SARSA on the same hazard level and plots
-   all three learning curves together).
-
-=== TEAM / REPORT / VIDEO / SUBMISSION SCAFFOLDING (new — do not skip) ===
-
-- `report/report_template.md`: section skeleton with a rough page budget per
-  section, pre-labeled with the 8 required sections from the spec (env
-  description x2, observation design, reward design, hyperparameter
-  exploration, control-set comparison, training evidence, originality
-  justification) plus placeholders for student numbers, contribution summary,
-  and the video link. Add an explicit "STRICT 10-page limit, no appendix" note
-  at the top.
-- `report/figures/`: empty folder where generated tables/plots/screenshots land.
-- `CONTRIBUTIONS.md`: table of student number -> name -> contribution summary,
-  to be filled in as work happens (not just at the end) and copy-pasted into
-  the report.
-- `VIDEO_SCRIPT.md`: a timestamped shot list totaling <= 10 minutes, structured
-  as a checklist mirroring the spec's "Must Show" lists for Part I and Part II
-  (gridworld window + learned-policy evidence + monster behavior; arena +
-  trained agent + spawning/collisions + a phase progression + BOTH control
-  schemes), with a column for which team member presents each segment.
-- `SUBMISSION_CHECKLIST.md`: the 2 required submission items (zip link + report
-  PDF), the zip's required contents (all gridworld code, arena code, training
-  scripts, saved models, TensorBoard logs), the Canvas upload reminder, and the
-  late-penalty note (10%/day).
-
-=== PROJECT STRUCTURE ===
-
-project/
-  scripts/
-    generate_report_tables.py   # root: reads BOTH parts' reward constants -> report/figures tables
-
-  part1_gridworld/
-    config/
-      level0.json ... level6.json   # 7 levels, one per task/rubric row (see above)
-      training_config.json          # episodes, alpha, gamma, epsilonStart/End, intrinsicRewardStrength
-      rewards_constants.py          # single source of truth: REWARD_APPLE, REWARD_KEY, REWARD_CHEST
-      schema.md                     # documents the level JSON schema
-    src/
-      env.py                # pure logic, no pygame dependency
-      algorithms.py          # QTable, epsilon_greedy, q_learning_update, sarsa_update, expected_sarsa_update
-      intrinsic.py            # intrinsic reward logic, kept separate for testability
-      render.py                # pygame rendering only
-      menu.py                   # level/algorithm select menu (also satisfies "interactive" requirement)
-      trainer.py                 # orchestrates env + algorithms + render + logger
-      logger.py                    # CSV/matplotlib episode-return logging (training curves)
-      plot_results.py               # renders training curve comparisons (levels 4/5/6, intrinsic on/off)
-      compare_algorithms.py          # creativity(d): Q-learning vs SARSA vs Expected SARSA on one hazard level
-      seed_utils.py                   # reproducibility
-    tests/
-      test_algorithms.py
-      test_env_rules.py       # rocks/fire/apples/keys/chests/termination
-      test_intrinsic_reward.py
-      test_tie_breaking.py
-      test_monster_stochastic.py
-    main.py
-    requirements.txt
-
-  part2_arena/
-    arena/
-      core_env.py         # LITERAL spec API: reset()->obs, step(action)->(obs,reward,done,info), render()
-      gym_adapter.py        # gymnasium.Env wrapper (5-tuple) around core_env, for SB3 only
-      entities.py
-      physics.py
-      obs.py                  # fixed-size observation vector; documents each feature
-      rewards.py                # the only place reward is computed; calls rewards_config
-      rewards_config.py           # single source of truth for all reward constants
-      phases.py                     # phase system + creativity(c) curriculum hook
-      actions.py                      # ControlStyle1 and ControlStyle2 action mappings
-      render_pygame.py
-    scripts/
-      train.py                  # --style {1,2} --algo {ppo,dqn} --curriculum {on,off} --timesteps N
-      eval_style1.py               # loads the style-1 model, plays it live
-      eval_style2.py                 # loads the style-2 model, plays it live
-      compare_ppo_dqn.py               # creativity(a)
-      plot_reward_decomposition.py       # creativity(b)
-    tests/
-      test_env_api.py          # core_env's literal 4-tuple contract AND gym_adapter's 5-tuple contract
-      test_reward_terms.py
-      test_obs_shape.py
-    models/
-    logs/
-    requirements.txt
-
-  report/
-    report_template.md
-    figures/
-
-  CONTRIBUTIONS.md
-  VIDEO_SCRIPT.md
-  SUBMISSION_CHECKLIST.md
-  RUBRIC_MAP.md
-  README.md
-  requirements.txt
-
-After scaffolding, print the list of files created and, for each one, a
-one-line explanation of which part of the assignment (and which rubric row)
-it addresses.
+pip install -r requirements.txt
 ```
-</file>
 
-<file path="scaffold_prompt.md">
-# Scaffold Prompt for the RL Assignment Codebase (GAIT_A3-style)
+Each part also has its own `requirements.txt` if you want isolated envs.
 
-Paste the prompt below into Claude Code (or whatever coding agent you use) to scaffold the project skeleton. This prompt already bakes in lessons learned from reviewing a strong sample submission (architecture worth keeping, mistakes worth avoiding), plus a suggested differentiation angle for the Creativity marks.
-
----
-
-## PROMPT
+## Layout
 
 ```
-You are a senior software engineer specializing in game AI and reinforcement
-learning. Scaffold a complete Python codebase for an RL assignment with two
-parts:
-
-PART I: Classical Gridworld (Pygame) with Q-learning and SARSA
-PART II: Real-time Arena (Pygame) with Deep RL via Stable-Baselines3
-
-=== FUNCTIONAL REQUIREMENTS (must follow the spec exactly, nothing missing) ===
-
-Part I - Gridworld:
-- Must be rendered in Pygame, animated, and interactive (no console/text
-  display allowed).
-- Mechanics: 4-directional movement; rocks block movement; fire/monsters
-  cause instant death; apples give +1; keys give NO reward (they only
-  unlock chests); chests give +2 when opened with a key; episode ends
-  when all collectible rewards are obtained OR the agent dies.
-- After each agent action, monsters (if present) have a 40% chance to move.
-- Task 1: Q-learning on Level 0 (apples only) — epsilon-greedy policy,
-  correct off-policy update rule, LINEAR epsilon decay (start->end via
-  config), random tie-breaking when multiple actions share the best
-  Q-value, must learn a shortest-path policy.
-- Task 2: SARSA on Level 1 — on-policy update (uses Q(s', a') where a' is
-  the action ACTUALLY CHOSEN by the policy, not the max), same exploration
-  schedule as Q-learning, must show evidence that SARSA behaves more
-  conservatively around hazards than Q-learning.
-- Task 3: Extend both algorithms to Levels 2-3 (multiple apples, a key,
-  a chest).
-- Task 4: Monster Levels 4-5 — both algorithms must handle stochastic
-  transitions correctly, agent must learn to avoid monsters while still
-  completing objectives.
-- Task 5 (Level 6): Intrinsic reward EXACTLY per the formula
-  r_i = intrinsicRewardStrength / sqrt(n(s) + 1), where n(s) = number of
-  visits to that state DURING THE CURRENT EPISODE (reset every episode).
-  Environment reward must stay unchanged. Total reward used for the
-  update = env reward + r_i.
-
-Part II - Arena:
-- Real-time Pygame, continuous animation (must NOT feel like a tile grid).
-- Player ship with movement + shooting; enemy spawners that periodically
-  create enemies; enemies that navigate toward the player; player health;
-  enemy health; projectile collisions; a phase system (destroying all
-  active spawners increases difficulty).
-- Gym-style API: reset() -> obs; step(action) -> (obs, reward, done, info);
-  render() for evaluation.
-- Observation: a FIXED-SIZE numeric vector (10-30 dims), no pixels, must
-  include at minimum: position, velocity, orientation (if relevant),
-  distance + direction to the nearest enemy, distance + direction to the
-  nearest spawner, health, current phase.
-- Two distinct control schemes, EACH with its own trained model + its own
-  evaluation script:
-  - Style 1: No-op, Thrust, Rotate left, Rotate right, Shoot
-  - Style 2: No-op, Up, Down, Left, Right, Shoot
-- Reward: positive for killing enemies, larger positive for destroying
-  spawners, positive for reaching a new phase, negative when taking
-  damage, strongly negative on death. ANY additional shaping reward must
-  have a clear, documented justification (docstring/comment).
-- Train with Stable-Baselines3 (PPO or DQN), MLP with at least one hidden
-  layer, log to TensorBoard, save models under models/, provide an
-  evaluation script that visually plays the trained agent in the arena.
-
-=== ARCHITECTURE PRINCIPLES (mandatory) ===
-
-1. Strict separation of concerns: environment logic (gridworld/arena) must
-   NEVER import pygame or know anything about the training loop. Rendering
-   is its own module that receives state and draws it. The training loop
-   is its own module that wires env + rendering together.
-2. A single source of truth for ALL reward constants: define them in one
-   config file (constants.py or rewards.yaml), and:
-   - Code reads from this file to compute rewards.
-   - A generate_report_tables.py script reads the SAME file to auto-generate
-     Markdown/LaTeX tables for the report.
-   => Goal: the README/report must never drift out of sync with the actual
-      code (this was a real problem I found reviewing a sample submission).
-3. Cap the number of reward-shaping terms at 6-8, each clearly named
-   (e.g. R_KILL_ENEMY, R_APPROACH_SPAWNER...). Do NOT scatter dozens of
-   inline magic numbers inside step(). Each term must:
-   - Have a one-line docstring explaining why it exists.
-   - Be logged separately to TensorBoard (reward decomposition) for analysis.
-4. No dead code — if you write a rewards.py module, it must actually be
-   called from env.py, not written and then bypassed by inline reward
-   logic elsewhere.
-5. Write small unit tests (pytest) for: the correct Q-learning update rule,
-   the correct SARSA update rule, the correct intrinsic reward formula,
-   and the "keys give no reward" rule. These serve both as self-checks and
-   as evidence of engineering rigor for the Creativity marks.
-6. A RUBRIC_MAP.md file that maps every module/function to the specific
-   rubric criterion it satisfies, so I can self-grade before submitting.
-
-=== DIFFERENTIATION ANGLE FOR CREATIVITY MARKS (build the scaffolding for this) ===
-
-Pick one or combine a few of these (avoid just doing "PPO + an unexplainably
-complex reward function," which is the typical unremarkable approach):
-
-a) Real algorithm comparison in Part II: train BOTH PPO and DQN on the same
-   control style, same observation space, same reward function — then
-   compare convergence speed, stability, and sample efficiency. This is a
-   genuine ablation, not just "two models for the sake of it." The spec
-   only requires one of the two algorithms, so doing both is a clear bonus
-   and makes for a strong report section.
-
-b) A "reward budget" + reward decomposition dashboard: strictly cap the
-   number of reward terms, but in exchange produce a stacked-area chart
-   showing each term's contribution over training time. This is both
-   strong analytical evidence and keeps the report short and readable
-   (the opposite of the "overloaded, under-explained shaping" problem
-   found in the sample submission).
-
-c) Curriculum learning for phase difficulty: instead of spawning full
-   difficulty from the start, ramp up enemy speed/spawn rate as phases are
-   cleared, and compare learning speed with vs. without curriculum. This
-   is an advanced RL concept beyond the minimum requirement and makes for
-   an impressive video demo segment.
-
-d) Add a third tabular algorithm in Part I beyond Q-learning/SARSA (e.g.
-   Expected SARSA) as a bonus, comparing all three learning curves on the
-   same hazard level — small in scope but shows a deep understanding of
-   on-policy vs. off-policy vs. expected updates.
-
-Scaffold the SKELETON code (folders, empty files with docstrings describing
-their responsibility, function signatures, clear TODOs) following the
-structure below. Do NOT implement full logic yet — I will fill this in
-myself:
-
-project/
-  part1_gridworld/
-    config/            # per-level JSON config, clear schema
-    src/
-      env.py            # pure logic, no pygame dependency
-      algorithms.py      # QTable, epsilon_greedy, q_learning_update, sarsa_update
-      intrinsic.py        # intrinsic reward logic kept separate for testability
-      render.py          # pygame rendering only
-      menu.py
-      trainer.py          # orchestrates: env + algorithms + render + logger
-      tb_logger.py
-      plot_results.py
-    tests/
-      test_algorithms.py
-      test_env_rules.py
-      test_intrinsic_reward.py
-    main.py
-
-  part2_arena/
-    arena/
-      env.py             # Gym-style API only
-      entities.py
-      physics.py
-      obs.py
-      rewards.py          # THE single place reward is computed, must actually be called
-      rewards_config.py   # single source of truth for all reward constants
-      render_pygame.py
-    scripts/
-      train.py             # supports both PPO and DQN via an --algo flag
-      eval.py
-      generate_report_tables.py    # reads rewards_config.py, generates report tables
-    tests/
-      test_env_api.py
-      test_reward_terms.py
-    models/
-    logs/
-
-  RUBRIC_MAP.md
-  README.md
-
-After scaffolding, print the list of files created and, for each one, a
-one-line explanation of which part of the assignment it addresses.
+part1_gridworld/   classical RL gridworld (see part1_gridworld/README below)
+part2_arena/        deep RL arena (see part2_arena below)
+report/               report template + generated figures/tables
+scripts/                cross-part utility scripts (report table generation)
+RUBRIC_MAP.md            module -> rubric row -> points
+CONTRIBUTIONS.md          student numbers + contribution log
+VIDEO_SCRIPT.md            demo video shot list
+SUBMISSION_CHECKLIST.md     final submission checklist
 ```
-</file>
 
-<file path="SUBMISSION_CHECKLIST.md">
-# Submission Checklist (STRICT — exactly 2 items required)
+## Running (once implemented)
 
-## 1. Zip file (link to it)
+Part I:
+```
+cd part1_gridworld
+python main.py
+```
 
-Contents required:
-- [ ] All gridworld code (`part1_gridworld/`)
-- [ ] Arena simulation code (`part2_arena/arena/`)
-- [ ] RL training scripts (`part1_gridworld/src/trainer.py`, `part2_arena/scripts/train.py`, etc.)
-- [ ] Saved models (`part2_arena/models/`)
-- [ ] TensorBoard logs (`part2_arena/logs/`)
+Part II training:
+```
+cd part2_arena
+python scripts/train.py --style 1 --algo ppo --timesteps 300000
+python scripts/eval_style1.py
+python scripts/eval_style2.py
+```
 
-Also: the actual zip file must be uploaded to Canvas per the submission
-instructions — a link alone is not sufficient there.
+## Report table generation
 
-## 2. Report PDF
-
-- [ ] Strict max 10 pages, including images, **no appendix** (anything beyond
-      page 10 will not be considered).
-- [ ] Description of both environments.
-- [ ] Observation design (each feature explained + justified).
-- [ ] Reward design (explained + justified, including any shaping).
-- [ ] Hyperparameter exploration (tables/plots as evidence).
-- [ ] Comparison of the two control sets (curves/screenshots/logs).
-- [ ] Evidence of training (logs + screenshots).
-- [ ] Originality justification.
-- [ ] Student numbers + contribution summary for all team members (see `CONTRIBUTIONS.md`).
-- [ ] Link to the video recording demonstration (see `VIDEO_SCRIPT.md`).
-
-## Before you submit
-
-- [ ] Every row in `RUBRIC_MAP.md` is `DONE`.
-- [ ] `python scripts/generate_report_tables.py` has been re-run against the
-      final code so report tables match the submitted constants exactly.
-- [ ] Models in `part2_arena/models/` are the exact ones shown in the video.
-- [ ] If submitting late: notify the teaching team so the correct version is
-      downloaded. 10% penalty applies per calendar day late.
-</file>
-
-<file path="VIDEO_SCRIPT.md">
-# Video Demo Script (Max 10 Minutes)
-
-Every checkbox below corresponds to something the rubric explicitly requires
-being shown. Fill in the timestamp and presenter as segments are recorded.
-Upload to YouTube (unlisted) or university OneDrive; link the final URL in
-the report.
-
-## Part I — Gridworld
-
-| # | Segment | Must show | Timestamp | Presenter |
-|---|---|---|---|---|
-| 1 | Gridworld window | Pygame window visible, animated | | |
-| 2 | Q-learning or SARSA run | Agent running on one level | | |
-| 3 | Monster/item behavior | If demoing a level with monsters/keys/chests | | |
-| 4 | Learned-policy evidence | Clearly NOT random (e.g. epsilon=0 greedy run, or narrate the shortest-path/avoidance behavior) | | |
-
-## Part II — Arena
-
-| # | Segment | Must show | Timestamp | Presenter |
-|---|---|---|---|---|
-| 5 | Arena running | Real-time Pygame arena, visually | | |
-| 6 | Trained agent — Control Style 1 | Rotation + thrust + shoot, learned behavior | | |
-| 7 | Trained agent — Control Style 2 | Directional movement + shoot, learned behavior | | |
-| 8 | Enemies + spawners | Spawning and moving toward player | | |
-| 9 | Projectiles/collisions | Working hit detection | | |
-| 10 | Phase progression | At least one phase transition occurring on screen | | |
-
-## Constraints checklist
-
-- [ ] Total length <= 10 minutes.
-- [ ] Every team member appears and presents at least one segment.
-- [ ] Environment/agent behavior shown matches the submitted code exactly.
-- [ ] Models shown are the same ones included in the submitted repo/zip.
-- [ ] All footage is actual gameplay, not static screens or slides.
-
-## Running order draft (edit freely)
-
-1. Intro (who we are, what this is) — ~20s
-2. Part I demo + narration — ~3 min
-3. Part II demo, Style 1 — ~2 min
-4. Part II demo, Style 2 — ~2 min
-5. Phase progression + wrap-up — ~1 min
+Keep `report/figures/reward_tables.md` in sync with the actual reward
+constants (both parts) by running:
+```
+python scripts/generate_report_tables.py
+```
+#
 </file>
 
 </files>

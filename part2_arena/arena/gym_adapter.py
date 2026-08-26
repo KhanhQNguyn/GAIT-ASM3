@@ -6,9 +6,9 @@ instead of a single done flag), which is a training-library requirement,
 not part of the assignment's own API wording.
 
 Do not put any game logic here -- this file's only job is protocol
-translation:
-    core_env.step()  -> (obs, reward, done, info)
-    gym_adapter.step() -> (obs, reward, terminated, truncated, info)
+translation. Example (illustrative, not executable):
+    core_env_step_returns_obs_reward_done_info
+    gym_adapter_step_returns_obs_reward_terminated_truncated_info
 with terminated = the player died, and truncated = the step/time limit was
 hit, derived from info["died"] / info["truncated"] that core_env.step()
 already provides (see core_env.py's step() docstring).
@@ -40,9 +40,12 @@ class ArenaGymEnv(gym.Env):
 
         action_enum = action_enum_for_style(control_style)
         self.action_space = spaces.Discrete(len(action_enum))
-        # TODO: set correct low/high bounds once obs.py's normalization
-        # ranges are finalized -- using -1/1 or 0/1 as a placeholder range
-        # depending on each feature's normalization.
+        # Observation bounds are [-1, 1] for ALL features -- this is the
+        # decided, final normalization convention (not a placeholder).
+        # See arena/obs.py's OBSERVATION_SPEC for per-feature descriptions
+        # and the rescaling formula. Every feature is either naturally in
+        # [-1, 1] (sin/cos) or linearly rescaled from [0, 1] to [-1, 1]
+        # via x_normalized = 2 * x_unit - 1.
         self.observation_space = spaces.Box(
             low=-1.0, high=1.0, shape=(OBS_DIM,), dtype=np.float32
         )

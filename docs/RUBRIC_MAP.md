@@ -32,3 +32,62 @@ Update the `Status` column as each piece lands (`TODO` -> `IN PROGRESS` ->
 `DONE`, with a short note or commit reference). Before submission, every row
 must be `DONE` with a pointer to the evidence (script output, plot, test
 pass) referenced in the report.
+
+---
+
+## Pre-implementation fixes applied
+
+The following documentation/spec-fidelity fixes were applied to the skeleton
+**before any algorithm or environment logic was written**, so they are in
+place from the first implementation commit. None of these changes implement
+`NotImplementedError` function bodies.
+
+1. **Monster-tile-entry spec gap** (`config/schema.md`, `src/env.py`,
+   `tests/test_monster_stochastic.py`) — added explicit invariant that the
+   agent moving onto a monster's tile is immediate death (independent of
+   monster movement); removed the self-contradictory "should not happen"
+   comment from `step()`'s docstring; added
+   `test_agent_moving_onto_monster_causes_death` stub.
+
+2. **`_load_level` TODO made concrete** (`src/env.py`, `src/trainer.py`) —
+   replaced vague "json.load, validate" TODO with a full itemised checklist
+   of required keys, bounds checks, and overlap checks, with ValueError
+   requirements; `load_training_config` likewise documents alpha/gamma/
+   epsilon/episodes validation requirements.
+
+3. **QTable interface collapsed to `__getitem__`** (`src/algorithms.py`) —
+   removed the duplicate `values(state)` method; class docstring now states
+   `q_table[state][action]` as the only access pattern; all callers must use
+   `q_table[state]` instead of `.values(`.
+
+4. **Intrinsic-reward visit-order decided** (`src/intrinsic.py`) — documented
+   that `visit_and_get_bonus` increments the count first then returns
+   `strength / sqrt(n(s))` (post-visit count); usage example updated to
+   reflect the call timing (current state `s`, before `env.step`).
+
+5. **Observation-space bounds finalised** (`arena/obs.py`,
+   `arena/gym_adapter.py`, `tests/test_obs_shape.py`) — chose `[-1, 1]` as
+   the universal normalization convention; updated every `OBSERVATION_SPEC`
+   description to state the target range; marked the `Box` bounds as final
+   (not a placeholder); updated the test TODO to assert value range.
+
+6. **Boxed-in-monster case documented** (`src/env.py`) — added one sentence
+   to `_resolve_monster_moves`: a monster with zero unblocked directions
+   skips its move silently (no crash on empty choices list).
+
+7. **Lint config added** (`pyproject.toml` at repo root) — ruff configured
+   for Python 3.11+, line length 100, `E/F/I` rule sets covering both
+   `part1_gridworld` and `part2_arena`.
+
+8. **This section** (`docs/RUBRIC_MAP.md`) — added for teammate visibility.
+
+9. **Round-2 follow-ups** (`src/intrinsic.py`, `arena/rewards_config.py`,
+   `arena/rewards.py`) — (a) rewrote `visit_and_get_bonus` docstring to
+   state plainly that post-increment `n(s)` and `(pre-visit n(s) + 1)` are
+   algebraically identical on every visit, not just the first (removes a
+   misleading implication that implementers need to choose between two
+   diverging conventions); (b) added `SHOT_NO_TARGET_RADIUS: float = 150.0`
+   to `rewards_config.py` with a tuning TODO, and updated `rewards.py`'s
+   import block and docstring to reference it (closes the "constant must be
+   added" loose thread flagged in round 1).
+

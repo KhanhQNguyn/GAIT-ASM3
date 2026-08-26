@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pathlib
 
+# pyrefly: ignore [missing-import]
 from algorithms import (
     QTable,
     epsilon_greedy,
@@ -17,6 +18,7 @@ from algorithms import (
     q_learning_update,
     sarsa_update,
 )
+# pyrefly: ignore [missing-import]
 from env import GridWorldEnv
 from intrinsic import IntrinsicRewardTracker
 from logger import EpisodeLogger
@@ -27,9 +29,15 @@ CONFIG_DIR = pathlib.Path(__file__).resolve().parent.parent / "config"
 
 def load_training_config(level_id: int) -> dict:
     """Load config/training_config.json, merge the 'default' block with any
-    level_overrides for this level_id.
+    level_overrides for this level_id, and validate the result.
 
-    TODO: implement (json.load + dict merge).
+    TODO: implement (json.load + dict merge). Once the loading code is
+    written, add the following validation checks (raise ValueError naming
+    the offending key and value so misconfigurations fail loudly):
+      - alpha must be in (0, 1]  (learning rate; 0 is a no-op, > 1 diverges)
+      - gamma must be in (0, 1]  (discount factor; 0 ignores future rewards)
+      - epsilon_end must be <= epsilon_start, with both in [0, 1]
+      - episodes must be > 0
     """
     raise NotImplementedError
 
@@ -49,19 +57,20 @@ def train(
     intrinsic.py) but is accepted generically so compare_algorithms.py /
     plot_results.py can run controlled on/off comparisons on any level.
 
-    Loop shape (per episode):
-      1. env.reset(), intrinsic_tracker.reset_episode() if enabled.
-      2. epsilon = linear_epsilon_decay(episode, total_episodes, ...).
-      3. Choose the first action via epsilon_greedy.
-      4. Step the environment; if using SARSA/Expected-SARSA, choose the
-         next action BEFORE computing the update (SARSA needs a' up front;
-         Expected SARSA needs epsilon, not a sampled a').
-      5. Add the intrinsic bonus to the reward used for the update ONLY --
-         never mutate the environment's own reward.
-      6. Call the appropriate *_update function.
-      7. Log the episode's total (environment-only, for comparability)
-         return via EpisodeLogger.
-      8. Optionally render.
+    Loop shape explanation (illustrative, not executable):
+    First, the environment and intrinsic tracker (if enabled) should be
+    reset at the start of each episode. Then, calculate epsilon using the
+    linear decay function. Next, select the initial action using the
+    epsilon-greedy strategy. Finally, step the environment. If the chosen
+    algorithm is SARSA or Expected-SARSA, ensure the next action is
+    selected BEFORE computing the update, as SARSA requires the next action
+    up front; Expected-SARSA does not require the selected action but
+    shares the flow structure. Add the intrinsic bonus to the reward used
+    for the update ONLY -- never mutate the environment's own reward.
+    Call the appropriate *_update function. Log the episode's total
+    (environment-only, for comparability) reward to the EpisodeLogger,
+    and return the final QTable once all episodes complete. Optionally
+    render if requested.
 
     TODO: implement, dispatching to q_learning_update / sarsa_update /
     expected_sarsa_update based on `algorithm`.
