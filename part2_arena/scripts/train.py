@@ -18,14 +18,26 @@ import argparse
 import dataclasses
 import pathlib
 import random
+import sys
 
-import numpy as np
-from stable_baselines3 import DQN, PPO
-from stable_baselines3.common.callbacks import BaseCallback, CallbackList, EvalCallback
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.utils import set_random_seed
+# `python scripts/train.py` only puts this file's own directory (scripts/) on
+# sys.path, not part2_arena/ -- so `import arena...` fails unless part2_arena/
+# is added explicitly. Do this before importing arena.* below.
+_PART2_ARENA_ROOT = pathlib.Path(__file__).resolve().parent.parent
+if str(_PART2_ARENA_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PART2_ARENA_ROOT))
 
-from arena.gym_adapter import ArenaGymEnv
+import numpy as np  # noqa: E402
+from stable_baselines3 import DQN, PPO  # noqa: E402
+from stable_baselines3.common.callbacks import (  # noqa: E402
+    BaseCallback,
+    CallbackList,
+    EvalCallback,
+)
+from stable_baselines3.common.monitor import Monitor  # noqa: E402
+from stable_baselines3.common.utils import set_random_seed  # noqa: E402
+
+from arena.gym_adapter import ArenaGymEnv  # noqa: E402
 
 MODELS_DIR = pathlib.Path(__file__).resolve().parent.parent / "models"
 LOGS_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs"
