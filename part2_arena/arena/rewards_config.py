@@ -37,28 +37,36 @@ agent reliably prioritizes survival."""
 # --- Optional shaping terms (<= 2, must be justified) ---
 
 R_APPROACH_NEAREST_ENEMY: float = 0.01
-"""TODO justify or remove: small per-step shaping reward for reducing
-distance to the nearest enemy, intended to speed up early training before
-the agent has discovered that engaging enemies is valuable at all. Must be
-small relative to R_KILL_ENEMY or the agent will loiter near enemies
-without shooting. Document the final decision (kept/removed/tuned) in
-report/report_template.md section 3."""
+"""DECISION (Member D): KEPT, at 0.01. Small per-step shaping reward for
+reducing distance to the nearest enemy, intended to speed up early training
+before the agent has discovered that engaging enemies is valuable at all.
+Kept deliberately small -- a 500:1 ratio against R_KILL_ENEMY (5.0) -- so it
+nudges the agent toward enemies without ever being large enough to make
+loitering near an enemy (collecting shaping reward) more attractive than
+actually shooting it. Document this decision in report/report_template.md
+section 3."""
 
 R_SHOOT_WHILE_NO_TARGET: float = 0.0
-"""TODO justify or remove: placeholder for a potential small penalty on
-shooting with no enemy in range, to discourage spamming the shoot action.
-Defaults to 0.0 (disabled) -- only enable this with a documented
-justification, since an undocumented shaping term is worse for the report
-than not having one."""
+"""DECISION (Member D): KEPT DISABLED, at 0.0. The spec does not give the
+player a limited ammo/cooldown resource that a "wasted shot" would deplete,
+so spam-shooting has no direct mechanical cost worth discouraging via
+reward. Enabling a penalty here risks discouraging legitimate exploratory
+fire early in training, before the agent has learned to aim -- i.e. it
+would likely slow convergence more than it saves. Revisit only if real
+training runs show the agent spamming SHOOT in a way that visibly hurts
+performance (e.g. via the reward decomposition dashboard,
+scripts/plot_reward_decomposition.py)."""
 
-SHOT_NO_TARGET_RADIUS: float = 150.0
+SHOT_NO_TARGET_RADIUS: float = 350.0
 """Distance threshold (in arena world units) beyond which the nearest enemy
 is not considered a valid target for R_SHOOT_WHILE_NO_TARGET purposes.
 A shot fired when the nearest enemy is farther than this value sets
 "shot_fired_with_no_target" in step_events (see rewards.py).
 
-TODO: tune once arena scale is confirmed. The placeholder value of 150.0 is
-roughly 0.3 × the diagonal of a 400×400 arena
-(diagonal ≈ 566 units → 0.3 × 566 ≈ 170; 150 is a conservative starting
-point). Adjust to match the actual ARENA_WIDTH / ARENA_HEIGHT values in
-core_env.py once those are implemented."""
+Derived (not a placeholder) from the real arena dimensions in core_env.py:
+ARENA_WIDTH=960, ARENA_HEIGHT=680 -> diagonal = sqrt(960**2 + 680**2)
+~= 1176.4 -> 0.3 * diagonal ~= 352.9, rounded to 350.0. Currently inert
+since R_SHOOT_WHILE_NO_TARGET is disabled (see decision above); kept
+accurate so step_events["shot_fired_with_no_target"] stays meaningful for
+TensorBoard inspection and so the constant is correct if this term is
+enabled later."""

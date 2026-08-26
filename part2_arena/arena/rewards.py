@@ -18,8 +18,14 @@ from arena.rewards_config import (
     R_KILL_SPAWNER,
     R_PHASE_PROGRESS,
     R_SHOOT_WHILE_NO_TARGET,
-    SHOT_NO_TARGET_RADIUS,
 )
+
+# NOTE: SHOT_NO_TARGET_RADIUS is deliberately NOT imported here -- it is
+# consumed by core_env.py (which measures the live distance to the nearest
+# enemy at the moment a shot is fired and sets step_events
+# ["shot_fired_with_no_target"] accordingly), not by compute_reward, which
+# only ever sees the already-computed boolean. See rewards_config.py's
+# docstring for the constant's derivation.
 
 
 @dataclass
@@ -54,22 +60,38 @@ def compute_reward(step_events: dict) -> RewardBreakdown:
     """Translate this step's game events into a RewardBreakdown using ONLY
     the constants in rewards_config.py.
 
-    `step_events` is expected to carry whatever core_env.py's step() logic
-    determined happened this step. Example (illustrative, not executable):
-    The dictionary should contain keys such as "enemies_killed" (int),
-    "spawners_killed" (int), "phase_advanced" (bool), "damage_taken" (float),
-    "died" (bool), "distance_delta_to_nearest_enemy" (float, negative means
-    got closer), and "shot_fired_with_no_target" (bool).
-    "shot_fired_with_no_target" means no enemy was within the detection
-    radius at the moment the shot was fired -- NOT "zero enemies exist
-    anywhere in the arena." Specifically: if the distance to the nearest
-    enemy exceeds SHOT_NO_TARGET_RADIUS (defined in rewards_config.py;
-    see its docstring for the tuning TODO and scale rationale), the shot
-    counts as having no target regardless of how many enemies are alive
-    elsewhere in the arena.
-    The exact key set is up to the implementer -- document it here once
-    finalized, since core_env.py must produce exactly this shape.
+    FINALIZED step_events shape (Member D/C contract -- core_env.py's
+    step() must produce a dict with exactly these keys; any key may be
+    omitted by the caller and is treated as its listed default, so partial
+    dicts -- e.g. in unit tests -- work without every key being spelled out):
 
-    TODO: implement, multiplying each event by its rewards_config constant.
+        "enemies_killed"                    int,   default 0
+        "spawners_killed"                   int,   default 0
+        "phase_advanced"                    bool,  default False
+        "damage_taken"                      float, default 0.0 (>= 0, HP lost this step)
+        "died"                              bool,  default False
+        "distance_delta_to_nearest_enemy"   float, default 0.0
+            (negative = agent got closer to the nearest enemy this step,
+            positive = got farther, 0.0 if there is no enemy to measure to)
+        "shot_fired_with_no_target"         bool,  default False
+            (True iff a shot was fired AND the nearest enemy was farther
+            than SHOT_NO_TARGET_RADIUS at that moment -- NOT "zero enemies
+            exist anywhere in the arena")
     """
-    raise NotImplementedError
+    enemies_killed = step_events.get("enemies_killed", 0)
+    spawners_killed = step_events.get("spawners_killed", 0)
+    phase_advanced = step_events.get("phase_advanced", False)
+    damage_taken = step_events.get("damage_taken", 0.0)
+    died = step_events.get("died", False)
+    distance_delta = step_events.get("distance_delta_to_nearest_enemy", 0.0)
+    shot_fired_with_no_target = step_events.get("shot_fired_with_no_target", False)
+
+    return RewardBreakdown(
+        kill_enemy=enemies_killed * R_KILL_ENEMY,
+        kill_spawner=spawners_killed * R_KILL_SPAWNER,
+        phase_progress=R_PHASE_PROGRESS if phase_advanced else 0.0,
+        damage_taken=damage_taken * R_DAMAGE_TAKEN_PER_HP,
+        death=R_DEATH if died else 0.0,
+        approach_nearest_enemy=-distance_delta * R_APPROACH_NEAREST_ENEMY,
+        shoot_while_no_target=R_SHOOT_WHILE_NO_TARGET if shot_fired_with_no_target else 0.0,
+    )
