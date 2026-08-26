@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import pathlib
 
+from src.plot_results import plot_training_curve
 from src.trainer import train
 
 COMPARISON_LEVEL_ID = 1  # fixed: level1 is the Task-2 hazard-shortcut layout
 FIGURES_DIR = pathlib.Path(__file__).resolve().parent.parent.parent / "report" / "figures"
+LOGS_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs"
 
 
 def run_comparison(seed: int = 0) -> dict[str, pathlib.Path]:
@@ -40,7 +42,25 @@ def run_comparison(seed: int = 0) -> dict[str, pathlib.Path]:
     saved screenshot -- not part of this function's return, but note it here
     so it is not forgotten.
     """
-    raise NotImplementedError
+    csv_paths = {}
+    for algorithm in ("q_learning", "sarsa"):
+        csv_path = LOGS_DIR / f"task2_level{COMPARISON_LEVEL_ID}_{algorithm}.csv"
+        train(
+            level_id=COMPARISON_LEVEL_ID,
+            algorithm=algorithm,
+            seed=seed,
+            render=False,
+            csv_log_path=csv_path,
+        )
+        csv_paths[algorithm] = csv_path
+
+    figure_path = plot_training_curve(
+        csv_paths,
+        title=f"Task 2: Q-learning vs SARSA (level {COMPARISON_LEVEL_ID})",
+        output_name=f"task2_q_vs_sarsa_level{COMPARISON_LEVEL_ID}.png",
+    )
+
+    return {**csv_paths, "figure": figure_path}
 
 
 if __name__ == "__main__":

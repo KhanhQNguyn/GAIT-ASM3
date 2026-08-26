@@ -80,4 +80,27 @@ def plot_death_rate(csv_paths: dict[str, str], title: str, output_name: str) -> 
     TODO: implement with matplotlib (mirror plot_training_curve's structure;
     y-axis 0..1, rolling window e.g. 50 episodes).
     """
-    raise NotImplementedError
+    import numpy as np
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    window = 50
+    for label, path in csv_paths.items():
+        data = load_episode_csv(path)
+        eps = data["episode"]
+        died = np.asarray(data["died"], dtype=float)
+        if len(died) >= window:
+            kernel = np.ones(window) / window
+            smooth = np.convolve(died, kernel, mode="valid")
+            ax.plot(eps[window - 1:], smooth, label=label)
+        else:
+            ax.plot(eps, died, label=label)
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Death rate (rolling)")
+    ax.set_ylim(0.0, 1.0)
+    ax.set_title(title)
+    ax.legend()
+    out = FIGURES_DIR / output_name
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    return out

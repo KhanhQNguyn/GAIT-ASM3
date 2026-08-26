@@ -22,12 +22,22 @@ REWARD_KEY: float = 0.0
 # Opening the chest (requires holding the key).
 REWARD_CHEST: float = 2.0
 
-# Reward on death (fire or monster contact). The spec does not mandate a
-# death penalty -- it only specifies that death ends the episode -- so this
-# defaults to 0.0 to stay strictly literal to the spec. If the team decides
-# to add a death penalty as a deliberate design choice, change this value
-# AND document the justification in report/report_template.md section 3,
-# since it is not one of the spec-mandated reward terms.
+# Reward on death (fire or monster contact). REVIEWED AND INTENTIONALLY KEPT
+# AT 0.0 -- do not "fix" this into a negative value. The spec's reward list
+# (apples/key/chest) has no death term, death is only specified as ending
+# the episode, and the spec is explicit that "rewards and mechanics must not
+# be altered." Per lesson.md (docs/lesson.md) -- feedback from a previous
+# team's assignment -- do not change a spec-defined reward without a
+# justification stronger than "it would make a comparison look cleaner."
+#
+# Task 2 (level1) still gets its required SARSA-vs-Q-learning contrast
+# without any penalty: dying ends the episode and forfeits every apple not
+# yet collected, so death already carries an implicit, emergent cost from
+# the MDP's own structure. SARSA's on-policy target incorporates the
+# exploring policy's real (nonzero) chance of stepping into the fire gap,
+# while Q-learning's off-policy max assumes optimal play afterward and
+# discounts that risk -- exactly the mechanism level1.json's own
+# `_design_note` describes. No hand-added penalty is needed to produce it.
 REWARD_DEATH: float = 0.0
 
 # No per-step penalty is specified by the spec; kept at 0.0 and exposed here

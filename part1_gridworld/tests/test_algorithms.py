@@ -7,13 +7,16 @@ not just "seems to learn something."
 import random
 
 import pytest
+
 from src.algorithms import (
     QTable,
     epsilon_greedy,
     expected_sarsa_update,
     linear_epsilon_decay,
+    load_qtable,
     q_learning_update,
     sarsa_update,
+    save_qtable,
 )
 
 
@@ -106,3 +109,38 @@ def test_epsilon_greedy_random_tie_breaking_distribution():
         counts[a] += 1
     assert counts[0] > 0 and counts[1] > 0
     assert 0.4 < counts[0] / 2000 < 0.6  # roughly uniform
+
+
+def test_save_load_qtable_round_trip(tmp_path):
+    """save_qtable -> load_qtable must reproduce identical Q-values for every
+    visited state, including a GridWorldEnv-shaped state key with a nested
+    monsters tuple -- this is exactly what main.py's watch-only path and
+    every comparison script depend on.
+    """
+    q = QTable(n_actions=4)
+    q[(0, 0, 3, False, False, ())][1] = 2.5
+    q[(1, 2, 0, True, True, ((3, 4), (5, 6)))][3] = -1.25
+
+    path = tmp_path / "level0_q_learning.json"
+    save_qtable(q, path)
+    assert path.exists()
+
+    loaded = load_qtable(path, n_actions=4)
+    monster_state = (1, 2, 0, True, True, ((3, 4), (5, 6)))
+    assert loaded[(0, 0, 3, False, False, ())] == q[(0, 0, 3, False, False, ())]
+    assert loaded[monster_state] == q[monster_state]
+    # An unvisited state still lazily defaults, matching a fresh QTable.
+    assert loaded[(9, 9, 0, False, False, ())] == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_load_qtable_rejects_mismatched_n_actions(tmp_path):
+    """Loading a table trained with a different action-space size must fail
+    loudly, not silently index-error later during a rollout.
+    """
+    q = QTable(n_actions=4)
+    q[(0, 0, 0, False, False, ())][0] = 1.0
+    path = tmp_path / "level0_q_learning.json"
+    save_qtable(q, path)
+
+    with pytest.raises(ValueError):
+        load_qtable(path, n_actions=6)
