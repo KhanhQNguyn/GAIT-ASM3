@@ -14,37 +14,81 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import sys
+
+# `python scripts/eval_style1.py` only puts this file's own directory
+# (scripts/) on sys.path, not part2_arena/ -- add it before importing arena.*.
+_PART2_ARENA_ROOT = pathlib.Path(__file__).resolve().parent.parent
+if str(_PART2_ARENA_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PART2_ARENA_ROOT))
+
+import pygame  # noqa: E402
+from stable_baselines3 import DQN, PPO  # noqa: E402
+
+from arena.gym_adapter import ArenaGymEnv  # noqa: E402
 
 MODELS_DIR = pathlib.Path(__file__).resolve().parent.parent / "models"
+
+CONTROL_STYLE = 1
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--algo", type=str, choices=["ppo", "dqn"], default="ppo")
     parser.add_argument("--curriculum", type=str, choices=["on", "off"], default="off")
-    parser.add_argument("--config", type=str, default="tuned_v1",
-                        help="hyperparameter preset the model was trained with (part of its filename)")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="tuned_v1",
+        help="hyperparameter preset the model was trained with (part of its filename)",
+    )
     parser.add_argument("--episodes", type=int, default=5)
-    parser.add_argument("--fps", type=int, default=60,
-                        help="frame-rate cap for the render loop so playback is watchable / recordable")
+    parser.add_argument(
+        "--fps",
+        type=int,
+        default=60,
+        help="frame-rate cap for the render loop so playback is watchable / recordable",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
-    """TODO:
-      1. args = parse_args(). seed_utils.set_seed(0) for a reproducible demo.
-      2. Build arena.gym_adapter.ArenaGymEnv(control_style=1,
-         render_mode="human").
-      3. Load the matching saved model (PPO.load / DQN.load) from
-         MODELS_DIR / f"style1_{args.algo}_{args.config}"
-         (+ "_curriculum" if args.curriculum == "on").
-      4. Run args.episodes episodes with deterministic=True actions,
-         calling env.render() each step so the Pygame window updates live.
-         Pace the loop with a pygame.time.Clock().tick(args.fps) each step
-         -- without it the window blurs past far too fast to film.
-      5. Print per-episode return/outcome summaries.
-    """
-    raise NotImplementedError
+    args = parse_args()
+
+    suffix = "_curriculum" if args.curriculum == "on" else ""
+    model_path = MODELS_DIR / f"style{CONTROL_STYLE}_{args.algo}_{args.config}{suffix}"
+    model_cls = PPO if args.algo == "ppo" else DQN
+    model = model_cls.load(model_path)
+
+    env = ArenaGymEnv(control_style=CONTROL_STYLE, render_mode="human")
+    clock = pygame.time.Clock()
+
+    for episode in range(1, args.episodes + 1):
+        obs, _info = env.reset()
+        env.render()
+        clock.tick(args.fps)
+        total_reward = 0.0
+        steps = 0
+        terminated = False
+        truncated = False
+
+        while not (terminated or truncated):
+            action, _state = model.predict(obs, deterministic=True)
+            obs, reward, terminated, truncated, info = env.step(action)
+            env.render()
+            clock.tick(args.fps)
+            total_reward += reward
+            steps += 1
+
+        outcome = "died" if terminated else "survived to step limit"
+        final_phase = env.core_env.state.phase if env.core_env.state is not None else None
+        print(
+            f"[episode {episode}/{args.episodes}] steps={steps} "
+            f"return={total_reward:.2f} outcome={outcome} "
+            f"final_phase={final_phase}"
+        )
+
+    env.close()
 
 
 if __name__ == "__main__":
