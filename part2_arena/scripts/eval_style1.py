@@ -14,10 +14,17 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import sys
 
-from stable_baselines3 import DQN, PPO
+# `python scripts/eval_style1.py` only puts this file's own directory
+# (scripts/) on sys.path, not part2_arena/ -- add it before importing arena.*.
+_PART2_ARENA_ROOT = pathlib.Path(__file__).resolve().parent.parent
+if str(_PART2_ARENA_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PART2_ARENA_ROOT))
 
-from arena.gym_adapter import ArenaGymEnv
+from stable_baselines3 import DQN, PPO  # noqa: E402
+
+from arena.gym_adapter import ArenaGymEnv  # noqa: E402
 
 MODELS_DIR = pathlib.Path(__file__).resolve().parent.parent / "models"
 
