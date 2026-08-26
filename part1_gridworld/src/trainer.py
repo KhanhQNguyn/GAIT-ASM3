@@ -7,6 +7,7 @@ keep this the single place that happens.
 
 from __future__ import annotations
 
+import json
 import pathlib
 
 from src.algorithms import (
@@ -25,6 +26,25 @@ from src.seed_utils import set_seed
 CONFIG_DIR = pathlib.Path(__file__).resolve().parent.parent / "config"
 
 
+def _validate_config(cfg: dict) -> None:
+    alpha = cfg.get("alpha")
+    gamma = cfg.get("gamma")
+    eps_start = cfg.get("epsilon_start")
+    eps_end = cfg.get("epsilon_end")
+    episodes = cfg.get("episodes")
+    if not (0.0 < alpha <= 1.0):
+        raise ValueError(f"training_config 'alpha' must be in (0, 1], got {alpha!r}")
+    if not (0.0 < gamma <= 1.0):
+        raise ValueError(f"training_config 'gamma' must be in (0, 1], got {gamma!r}")
+    if not (0.0 <= eps_end <= eps_start <= 1.0):
+        raise ValueError(
+            "training_config needs 0 <= epsilon_end <= epsilon_start <= 1, "
+            f"got start={eps_start!r} end={eps_end!r}"
+        )
+    if not (isinstance(episodes, int) and episodes > 0):
+        raise ValueError(f"training_config 'episodes' must be an int > 0, got {episodes!r}")
+
+
 def load_training_config(level_id: int) -> dict:
     """Load config/training_config.json, merge the 'default' block with any
     level_overrides for this level_id, and validate the result.
@@ -37,7 +57,14 @@ def load_training_config(level_id: int) -> dict:
       - epsilon_end must be <= epsilon_start, with both in [0, 1]
       - episodes must be > 0
     """
-    raise NotImplementedError
+    with open(CONFIG_DIR / "training_config.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    cfg = dict(data["default"])
+    override = data.get("level_overrides", {}).get(str(level_id))
+    if override:
+        cfg.update(override)
+    _validate_config(cfg)
+    return cfg
 
 
 def make_env(level_id: int) -> GridWorldEnv:

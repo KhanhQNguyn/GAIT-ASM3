@@ -20,4 +20,6 @@ def set_seed(seed: int) -> random.Random:
 
     TODO: implement.
     """
-    raise NotImplementedError
+    random.seed(seed)
+    np.random.seed(seed)
+    return random.Random(seed)
