@@ -4,14 +4,36 @@ render.py and receives GridWorldEnv's state, never the other way around.
 
 Loads a level from config/levelN.json (see config/schema.md for the exact
 schema) and exposes a small, explicit step/reset API used by trainer.py.
+
+Known limitations / design notes
+---------------------------------
+State representation chosen:
+    (agent_x, agent_y, apples_bitmask, has_key, chest_open, monsters_tuple)
+
+- apples_bitmask is an int where bit i (0-indexed) = 1 means apple i (in
+  level JSON order) is still uncollected. All-zeros => all collected.
+  This is compact (O(1) hash, O(n) bits vs frozenset overhead) and fully
+  hashable for a dict-keyed Q-table.
+
+- monsters_tuple is a tuple of (x, y) pairs, sorted by (x, y) so that the
+  same set of monster positions always hashes to the same value regardless
+  of iteration order.
+
+- For level4/level6 (2 monsters, open 10x10 grid), this state space is
+  large (~10*10 * 2^3 * 2 * 2 * 10*10 per monster) but bounded and still
+  convergeable given the per-level episode overrides in training_config.json.
+  Do NOT remove monsters from the tuple; that makes the env non-Markov and
+  breaks Task 4's "learn to avoid monsters" requirement.
 """
 
 from __future__ import annotations
 
 import json
 import pathlib
+import random
 from dataclasses import dataclass, field
 from enum import IntEnum
+from typing import List, Tuple
 
 from config.rewards_constants import (
     REWARD_APPLE,
@@ -108,56 +130,214 @@ class GridWorldEnv:
     """
 
     def __init__(self, level_path: str | pathlib.Path):
+        """Load and validate the level JSON, then initialise all runtime state.
+
+        Args:
+            level_path: Path to a levelN.json file. Relative paths are
+                resolved from the current working directory.
+        """
         self.level_path = pathlib.Path(level_path)
         self.level = self._load_level(self.level_path)
-        # TODO: initialize agent position, remaining apples, key/chest state,
-        # monster list, step counter, and RNG from self.level.
+
+        # Fixed layout data (never mutated after init)
+        self._grid_w: int = self.level["grid_size"][0]
+        self._grid_h: int = self.level["grid_size"][1]
+        self._max_steps: int = self.level["max_steps"]
+        self._rocks: frozenset[tuple[int, int]] = frozenset(
+            tuple(r) for r in self.level["rocks"]
+        )
+        self._fire: frozenset[tuple[int, int]] = frozenset(
+            tuple(f) for f in self.level["fire"]
+        )
+        # Store apple initial positions as a list (order = bitmask index)
+        self._apple_positions: List[Tuple[int, int]] = [
+            tuple(a) for a in self.level["apples"]
+        ]
+        self._key_pos: tuple[int, int] | None = (
+            tuple(self.level["key"]) if self.level["key"] is not None else None
+        )
+        self._chest_pos: tuple[int, int] | None = (
+            tuple(self.level["chest"]) if self.level["chest"] is not None else None
+        )
+        self._monster_starts: List[Tuple[int, int]] = [
+            tuple(m["start"]) for m in self.level["monsters"]
+        ]
+        self._monster_move_probs: List[float] = [
+            m["move_prob"] for m in self.level["monsters"]
+        ]
+        self._agent_start: tuple[int, int] = tuple(self.level["agent_start"])
+
+        # Mutable runtime state (reset by reset())
+        self._agent_pos: tuple[int, int] = self._agent_start
+        self._apples_bitmask: int = (1 << len(self._apple_positions)) - 1
+        self._has_key: bool = False
+        self._chest_open: bool = False
+        self._monsters: List[Monster] = []
+        self._step_count: int = 0
+        self._done: bool = False
+
+        # Module-level RNG for monster decisions (seeded externally via seed_utils)
+        self._rng = random.Random()
+
+        # Initialise to starting state
+        self.reset()
 
     @staticmethod
     def _load_level(path: pathlib.Path) -> dict:
         """Load and validate a levelN.json file against the schema documented
         in config/schema.md.
 
-        TODO: Implement as follows (do NOT use bare assertions -- raise
-        ValueError with a message that names the level file and the specific
-        problem so malformed levels fail loudly at load time, not as a
-        confusing KeyError/IndexError mid-training):
+        Raises ValueError (never bare assertions) with a message that names
+        the level file and the specific problem so malformed levels fail
+        loudly at load time, not as a confusing KeyError/IndexError mid-training.
 
+        Steps:
           1. json.load the file.
-          2. Check all required top-level keys are present:
-               level_id, name, grid_size, agent_start, max_steps,
-               rocks, fire, apples, key, chest, monsters
-             Raise ValueError naming any missing key.
-          3. Check all coordinate values are within bounds:
-               [0, grid_size[0]) x [0, grid_size[1])
-             for: agent_start, every rock coordinate, every fire coordinate,
-             every apple coordinate, key (if not null), chest (if not null),
-             and every monster's "start" field.
-             Raise ValueError naming the out-of-bounds coordinate and field.
+          2. Check all required top-level keys are present.
+          3. Check all coordinate values are within bounds.
           4. Check no two of {rocks, fire, apples, key, chest, monster starts}
-             occupy the same tile unless that is an intentional per-level
-             design choice (if so, note it explicitly in the level JSON's
-             "_design_note" field and skip the overlap check for that tile).
-             Raise ValueError naming the overlapping tile and fields.
+             occupy the same tile (unless _design_note exempts it).
           5. Return the validated dict.
-
-        Solvability (every apple / key / chest actually reachable from
-        agent_start given the rocks) is deliberately NOT checked here -- it
-        needs a BFS and is a config-authoring check, not a hot-path load
-        check. It lives in tests/test_level_configs.py::test_level_is_solvable
-        instead.
         """
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        if not path.exists():
+            raise ValueError(f"Level file not found: {path}")
 
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # 1. Required keys
+        required_keys = [
+            "level_id", "name", "grid_size", "agent_start", "max_steps",
+            "rocks", "fire", "apples", "key", "chest", "monsters",
+        ]
+        for key in required_keys:
+            if key not in data:
+                raise ValueError(
+                    f"[{path.name}] Missing required key: '{key}'"
+                )
+
+        gw, gh = data["grid_size"][0], data["grid_size"][1]
+
+        def _check_coord(coord, field_name: str) -> None:
+            x, y = coord[0], coord[1]
+            if not (0 <= x < gw and 0 <= y < gh):
+                raise ValueError(
+                    f"[{path.name}] Coordinate {coord} in '{field_name}' is "
+                    f"out of bounds for grid {gw}x{gh}."
+                )
+
+        # 2. Check agent_start
+        _check_coord(data["agent_start"], "agent_start")
+
+        # 3. Check all coordinate fields
+        for rock in data["rocks"]:
+            _check_coord(rock, "rocks")
+        for fire in data["fire"]:
+            _check_coord(fire, "fire")
+        for apple in data["apples"]:
+            _check_coord(apple, "apples")
+        if data["key"] is not None:
+            _check_coord(data["key"], "key")
+        if data["chest"] is not None:
+            _check_coord(data["chest"], "chest")
+        for m in data["monsters"]:
+            _check_coord(m["start"], "monster start")
+
+        # 4. Overlap check (skip if _design_note present — intentional overlap)
+        if "_design_note" not in data:
+            all_tiles: dict[tuple, str] = {}
+            for rock in data["rocks"]:
+                t = tuple(rock)
+                if t in all_tiles:
+                    raise ValueError(
+                        f"[{path.name}] Tile {t} overlaps 'rocks' and '{all_tiles[t]}'"
+                    )
+                all_tiles[t] = "rocks"
+            for fire in data["fire"]:
+                t = tuple(fire)
+                if t in all_tiles:
+                    raise ValueError(
+                        f"[{path.name}] Tile {t} overlaps 'fire' and '{all_tiles[t]}'"
+                    )
+                all_tiles[t] = "fire"
+            for apple in data["apples"]:
+                t = tuple(apple)
+                if t in all_tiles:
+                    raise ValueError(
+                        f"[{path.name}] Tile {t} overlaps 'apples' and '{all_tiles[t]}'"
+                    )
+                all_tiles[t] = "apples"
+            if data["key"] is not None:
+                t = tuple(data["key"])
+                if t in all_tiles:
+                    raise ValueError(
+                        f"[{path.name}] Tile {t} overlaps 'key' and '{all_tiles[t]}'"
+                    )
+                all_tiles[t] = "key"
+            if data["chest"] is not None:
+                t = tuple(data["chest"])
+                if t in all_tiles:
+                    raise ValueError(
+                        f"[{path.name}] Tile {t} overlaps 'chest' and '{all_tiles[t]}'"
+                    )
+                all_tiles[t] = "chest"
+            for m in data["monsters"]:
+                t = tuple(m["start"])
+                if t in all_tiles:
+                    raise ValueError(
+                        f"[{path.name}] Tile {t} overlaps 'monster start' and '{all_tiles[t]}'"
+                    )
+                # Monsters may share start tiles with each other — only track
+                # vs static objects, not vs other monsters.
+
+        return data
 
     def reset(self) -> tuple:
         """Reset to the level's initial state and return the initial state
         tuple used to index the Q-table.
 
-        TODO: implement.
+        Returns:
+            The initial state tuple:
+            (agent_x, agent_y, apples_bitmask, has_key, chest_open, monsters_tuple)
         """
-        raise NotImplementedError
+        self._agent_pos = self._agent_start
+        # All apples present: bits 0..N-1 all set
+        self._apples_bitmask = (1 << len(self._apple_positions)) - 1
+        self._has_key = False
+        self._chest_open = False
+        self._monsters = [
+            Monster(position=pos, move_prob=prob)
+            for pos, prob in zip(self._monster_starts, self._monster_move_probs)
+        ]
+        self._step_count = 0
+        self._done = False
+        return self._get_state()
+
+    def _get_state(self) -> tuple:
+        """Return the current hashable state tuple."""
+        monsters_tuple = tuple(
+            sorted(m.position for m in self._monsters)
+        )
+        return (
+            self._agent_pos[0],
+            self._agent_pos[1],
+            self._apples_bitmask,
+            self._has_key,
+            self._chest_open,
+            monsters_tuple,
+        )
+
+    def _is_blocked(self, x: int, y: int) -> bool:
+        """Return True if tile (x, y) is impassable (off-grid or rock)."""
+        if x < 0 or x >= self._grid_w or y < 0 or y >= self._grid_h:
+            return True
+        if (x, y) in self._rocks:
+            return True
+        return False
+
+    def _monster_positions_set(self) -> set[tuple[int, int]]:
+        """Return the set of all current monster positions (for O(1) lookup)."""
+        return {m.position for m in self._monsters}
 
     def step(self, action: Action) -> StepResult:
         """Apply one agent action, then resolve monster movement, then
@@ -180,9 +360,93 @@ class GridWorldEnv:
              case — agent moved onto monster — was already caught in step 3.)
           8. Increment step counter; truncate if max_steps reached.
 
-        TODO: implement, returning a StepResult.
+        Args:
+            action: One of Action.UP / DOWN / LEFT / RIGHT.
+
+        Returns:
+            StepResult(state, reward, done, info)
         """
-        raise NotImplementedError
+        if self._done:
+            # Episode already ended — return current state without side-effects
+            return StepResult(
+                state=self._get_state(),
+                reward=0.0,
+                done=True,
+                info={"error": "step() called after episode is done"},
+            )
+
+        reward = REWARD_STEP  # Per-step reward (0.0 per spec)
+        info: dict = {}
+
+        # 1. Move the agent
+        dx, dy = ACTION_DELTAS[action]
+        nx, ny = self._agent_pos[0] + dx, self._agent_pos[1] + dy
+        if not self._is_blocked(nx, ny):
+            self._agent_pos = (nx, ny)
+        # If blocked: stay in place (no movement, not an error)
+
+        ax, ay = self._agent_pos
+
+        # 2. Fire check — immediate death, skip monster resolution
+        if (ax, ay) in self._fire:
+            reward += REWARD_DEATH
+            self._done = True
+            info["cause"] = "fire"
+            return StepResult(state=self._get_state(), reward=reward, done=True, info=info)
+
+        # 3. Agent-into-monster check — immediate death, skip monster resolution
+        if (ax, ay) in self._monster_positions_set():
+            reward += REWARD_DEATH
+            self._done = True
+            info["cause"] = "agent_into_monster"
+            return StepResult(state=self._get_state(), reward=reward, done=True, info=info)
+
+        # 4. Pickups at agent's new tile
+        # Apple pickup
+        for i, apple_pos in enumerate(self._apple_positions):
+            if (ax, ay) == apple_pos and (self._apples_bitmask >> i) & 1:
+                reward += REWARD_APPLE
+                self._apples_bitmask &= ~(1 << i)  # consume the apple
+                break
+
+        # Key pickup (key tile is consumed once picked up)
+        if self._key_pos is not None and (ax, ay) == self._key_pos and not self._has_key and not self._chest_open:
+            reward += REWARD_KEY  # 0.0 per spec — imported, not hardcoded
+            self._has_key = True
+
+        # Chest interaction (only opens if has_key; nothing happens otherwise)
+        if self._chest_pos is not None and (ax, ay) == self._chest_pos and not self._chest_open:
+            if self._has_key:
+                reward += REWARD_CHEST
+                self._chest_open = True
+                self._has_key = False  # Key is consumed
+
+        # 5. Win condition: all apples collected AND chest opened (if present)
+        all_apples_done = (self._apples_bitmask == 0)
+        chest_done = (self._chest_pos is None) or self._chest_open
+        if all_apples_done and chest_done:
+            self._done = True
+            info["cause"] = "win"
+            return StepResult(state=self._get_state(), reward=reward, done=True, info=info)
+
+        # 6. Monster movement (only if episode not yet over)
+        self._resolve_monster_moves()
+
+        # 7. Monster-into-agent check
+        if (ax, ay) in self._monster_positions_set():
+            reward += REWARD_DEATH
+            self._done = True
+            info["cause"] = "monster_into_agent"
+            return StepResult(state=self._get_state(), reward=reward, done=True, info=info)
+
+        # 8. Increment step counter; truncate if max_steps reached
+        self._step_count += 1
+        if self._step_count >= self._max_steps:
+            self._done = True
+            info["cause"] = "truncated"
+            return StepResult(state=self._get_state(), reward=reward, done=True, info=info)
+
+        return StepResult(state=self._get_state(), reward=reward, done=False, info=info)
 
     def _resolve_monster_moves(self) -> None:
         """Give each monster its 0.4 chance to move one tile in a random
@@ -205,11 +469,77 @@ class GridWorldEnv:
         Kept as its own method so tests/test_monster_stochastic.py can
         call it directly with a seeded RNG and check the empirical move
         rate converges to 0.4 over many trials.
-
-        TODO: implement.
         """
-        raise NotImplementedError
+        for monster in self._monsters:
+            # Each monster independently draws a Bernoulli(move_prob) decision
+            if self._rng.random() >= monster.move_prob:
+                continue  # This monster doesn't move this turn
+
+            # Find all currently unblocked directions
+            mx, my = monster.position
+            unblocked = []
+            for dx, dy in ACTION_DELTAS.values():
+                nx, ny = mx + dx, my + dy
+                if not self._is_blocked(nx, ny):
+                    unblocked.append((nx, ny))
+
+            if not unblocked:
+                # Fully surrounded by rocks/edges — does not move
+                continue
+
+            # Choose uniformly at random from unblocked directions
+            monster.position = self._rng.choice(unblocked)
+
+    def get_state_snapshot(self) -> dict:
+        """Return a plain-dict snapshot of the current environment state for
+        the renderer. Renderer must never receive the GridWorldEnv object itself.
+
+        Returns a dict with all necessary keys for GridWorldRenderer.draw():
+            - grid_w, grid_h: grid dimensions
+            - agent_pos: (x, y)
+            - rocks: list of (x, y)
+            - fire: list of (x, y)
+            - apples: list of (x, y) for remaining (uncollected) apples
+            - key_pos: (x, y) or None (None if level has no key or key collected)
+            - chest_pos: (x, y) or None (None if level has no chest or chest opened)
+            - monsters: list of (x, y)
+            - has_key: bool
+            - chest_open: bool
+            - step_count: int
+            - max_steps: int
+            - done: bool
+        """
+        remaining_apples = [
+            pos for i, pos in enumerate(self._apple_positions)
+            if (self._apples_bitmask >> i) & 1
+        ]
+        # Key is visible on map only if it hasn't been picked up yet
+        key_on_map = self._key_pos if (self._key_pos is not None and not self._has_key and not self._chest_open) else None
+        # Chest is visible only if not opened yet
+        chest_on_map = self._chest_pos if (self._chest_pos is not None and not self._chest_open) else None
+
+        return {
+            "grid_w": self._grid_w,
+            "grid_h": self._grid_h,
+            "agent_pos": self._agent_pos,
+            "rocks": list(self._rocks),
+            "fire": list(self._fire),
+            "apples": remaining_apples,
+            "key_pos": key_on_map,
+            "chest_pos": chest_on_map,
+            "monsters": [m.position for m in self._monsters],
+            "has_key": self._has_key,
+            "chest_open": self._chest_open,
+            "step_count": self._step_count,
+            "max_steps": self._max_steps,
+            "done": self._done,
+        }
 
     @property
     def action_space_n(self) -> int:
         return len(Action)
+
+    @property
+    def grid_size(self) -> tuple[int, int]:
+        """Return (width, height) of the grid."""
+        return (self._grid_w, self._grid_h)

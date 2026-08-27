@@ -16,6 +16,18 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import sys
+
+# `python scripts/plot_reward_decomposition.py` only puts this file's own
+# directory (scripts/) on sys.path, not part2_arena/ -- add it before
+# importing arena.* (not needed directly here, but kept consistent with the
+# rest of the Member D scripts in case a future revision needs it).
+_PART2_ARENA_ROOT = pathlib.Path(__file__).resolve().parent.parent
+if str(_PART2_ARENA_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PART2_ARENA_ROOT))
+
+import matplotlib.pyplot as plt  # noqa: E402
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator  # noqa: E402
 
 LOGS_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs"
 FIGURES_DIR = pathlib.Path(__file__).resolve().parent.parent.parent / "report" / "figures"
@@ -35,31 +47,96 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--style", type=int, choices=[1, 2], default=1)
     parser.add_argument("--algo", type=str, choices=["ppo", "dqn"], default="ppo")
+    parser.add_argument("--curriculum", type=str, choices=["on", "off"], default="off")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="tuned_v1",
+        help="hyperparameter preset the run was trained with (part of its TensorBoard run name)",
+    )
     return parser.parse_args()
+
+
+def find_log_dir(style: int, algo: str, curriculum: str, preset: str = "tuned_v1") -> pathlib.Path:
+    """Locate the most recent TensorBoard run directory for (style, algo,
+    preset, curriculum), matching the tb_log_name train.py's main() passes
+    to model.learn() (e.g. "style1_ppo_tuned_v1",
+    "style2_dqn_tuned_v1_curriculum"), including SB3's auto-appended "_N"
+    run suffix. Picks the highest-numbered (most recent) run if train.py
+    was run more than once for this exact combination.
+    """
+    suffix = "_curriculum" if curriculum == "on" else ""
+    prefix = f"style{style}_{algo}_{preset}{suffix}_"
+    candidates = sorted(
+        (p for p in LOGS_DIR.glob(f"{prefix}*") if p.is_dir()),
+        key=lambda p: int(p.name.rsplit("_", 1)[-1]) if p.name.rsplit("_", 1)[-1].isdigit() else -1,
+    )
+    if not candidates:
+        raise FileNotFoundError(
+            f"No TensorBoard run directory found under {LOGS_DIR} matching '{prefix}*' "
+            f"-- run scripts/train.py --style {style} --algo {algo} "
+            f"--config {preset} --curriculum {curriculum} first."
+        )
+    return candidates[-1]
 
 
 def read_all_term_scalars(log_dir: pathlib.Path) -> dict:
     """Read each tag in REWARD_TERM_TAGS from the TensorBoard event file(s)
-    under log_dir into a {tag: (steps, values)} dict.
-
-    TODO: implement (same TensorBoard-reading approach as
-    compare_ppo_dqn.read_tensorboard_scalars -- consider factoring a shared
-    helper once both are implemented).
+    under log_dir into a {tag: (steps, values)} dict. Tags that were never
+    logged (e.g. a term that never fired during this run) are omitted
+    rather than raising.
     """
-    raise NotImplementedError
+    accumulator = EventAccumulator(str(log_dir))
+    accumulator.Reload()
+    available = set(accumulator.Tags().get("scalars", []))
+
+    result = {}
+    for tag in REWARD_TERM_TAGS:
+        if tag not in available:
+            continue
+        events = accumulator.Scalars(tag)
+        result[tag] = ([event.step for event in events], [event.value for event in events])
+    return result
 
 
-def plot_stacked_area(term_series: dict, output_name: str = "reward_decomposition.png") -> pathlib.Path:
+def plot_stacked_area(
+    term_series: dict, output_name: str = "reward_decomposition.png"
+) -> pathlib.Path:
     """Render a stacked-area chart of each reward term's contribution over
     training steps, save to FIGURES_DIR / output_name.
-
-    TODO: implement with matplotlib (plt.stackplot).
     """
-    raise NotImplementedError
+    if not term_series:
+        raise ValueError(
+            "term_series is empty -- no reward_terms/* tags found in the log "
+            "directory (was RewardBreakdownCallback active during training?)"
+        )
+
+    # All terms are logged together every rollout by the same callback, so
+    # their series should already be the same length; truncate to the
+    # shortest just in case a term started logging a step later than others.
+    min_len = min(len(steps) for steps, _values in term_series.values())
+    steps = next(iter(term_series.values()))[0][:min_len]
+    labels = [tag.split("/", 1)[-1] for tag in term_series]
+    series = [values[:min_len] for _steps, values in term_series.values()]
+
+    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.stackplot(steps, *series, labels=labels)
+    ax.set_xlabel("Timesteps")
+    ax.set_ylabel("Reward contribution (rolling mean per rollout)")
+    ax.set_title("Reward term decomposition over training")
+    ax.legend(loc="upper left", fontsize="small")
+
+    output_path = FIGURES_DIR / output_name
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
 
 
 if __name__ == "__main__":
     args = parse_args()
-    # TODO: locate the right log_dir for (style, algo), read_all_term_scalars,
-    # plot_stacked_area.
-    raise NotImplementedError
+    log_dir = find_log_dir(args.style, args.algo, args.curriculum, args.config)
+    term_series = read_all_term_scalars(log_dir)
+    output_name = f"reward_decomposition_style{args.style}_{args.algo}_{args.config}.png"
+    output_path = plot_stacked_area(term_series, output_name)
+    print(f"Saved reward decomposition plot to: {output_path}")

@@ -21,8 +21,10 @@ class EpisodeLogger:
 
     def __init__(self, csv_path: str | pathlib.Path):
         self.csv_path = pathlib.Path(csv_path)
-        # TODO: open the file, write the header row via csv.DictWriter.
-        raise NotImplementedError
+        self.csv_path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = open(self.csv_path, "w", newline="", encoding="utf-8")
+        self._writer = csv.DictWriter(self._file, fieldnames=self.FIELDNAMES)
+        self._writer.writeheader()
 
     def log_episode(
         self, episode: int, total_return: float, steps: int, died: bool, epsilon: float
@@ -31,11 +33,18 @@ class EpisodeLogger:
 
         TODO: implement.
         """
-        raise NotImplementedError
+        self._writer.writerow({
+            "episode": episode,
+            "return": total_return,
+            "steps": steps,
+            "died": died,
+            "epsilon": epsilon,
+        })
 
     def close(self) -> None:
         """Flush and close the underlying file.
 
         TODO: implement.
         """
-        raise NotImplementedError
+        self._file.flush()
+        self._file.close()

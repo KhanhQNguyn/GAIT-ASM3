@@ -16,12 +16,18 @@ class Player:
     y: float
     vx: float = 0.0
     vy: float = 0.0
-    orientation: float = 0.0  # radians; only meaningful for ControlStyle1
+    # Facing angle in radians. For ControlStyle1 this is the rotate/thrust
+    # heading; for ControlStyle2 core_env keeps it pointed along the last
+    # non-zero move direction so "shoot" has a direction. The *observation*
+    # masks it to 0 for ControlStyle2 (see obs.py) -- the spec says
+    # orientation is only meaningful for the rotation scheme.
+    orientation: float = 0.0
     health: float = 100.0
     max_health: float = 100.0
-
-    # TODO: add whatever additional fields physics.py / rewards.py need
-    # (e.g. cooldown timer for shooting).
+    # Steps remaining until the ship may fire again. Decremented once per
+    # step by core_env; "shoot" is a no-op while this is > 0. Prevents the
+    # SHOOT action from spawning a projectile every single frame.
+    shoot_cooldown: int = 0
 
 
 @dataclass
@@ -78,3 +84,7 @@ class ArenaState:
     projectiles: list[Projectile] = field(default_factory=list)
     phase: int = 0
     step_count: int = 0
+    # 1 (rotation+thrust) or 2 (direct directional). Carried on the state so
+    # obs.build_observation and render_pygame can behave per-scheme without a
+    # separate parameter (e.g. obs masks the orientation feature for style 2).
+    control_style: int = 1

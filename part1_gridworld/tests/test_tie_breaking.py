@@ -3,7 +3,9 @@
 to point a marker at directly as evidence for that specific rubric line.
 """
 
-import pytest
+import random
+
+from src.algorithms import epsilon_greedy
 
 
 def test_tied_best_actions_each_selected_with_nonzero_frequency():
@@ -14,4 +16,9 @@ def test_tied_best_actions_each_selected_with_nonzero_frequency():
 
     TODO: implement once algorithms.epsilon_greedy is implemented.
     """
-    pytest.skip("TODO: implement once algorithms.epsilon_greedy is implemented")
+    rng = random.Random(7)
+    q_values = [3.0, 3.0, 0.0, 0.0]
+    seen = set()
+    for _ in range(500):
+        seen.add(epsilon_greedy(q_values, epsilon=0.0, rng=rng))
+    assert seen == {0, 1}

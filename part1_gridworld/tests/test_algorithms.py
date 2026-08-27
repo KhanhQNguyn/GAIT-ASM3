@@ -4,7 +4,20 @@ are the concrete evidence that the update rules are implemented correctly,
 not just "seems to learn something."
 """
 
+import random
+
 import pytest
+
+from src.algorithms import (
+    QTable,
+    epsilon_greedy,
+    expected_sarsa_update,
+    linear_epsilon_decay,
+    load_qtable,
+    q_learning_update,
+    sarsa_update,
+    save_qtable,
+)
 
 
 def test_q_learning_update_uses_max_over_next_actions():
@@ -16,7 +29,15 @@ def test_q_learning_update_uses_max_over_next_actions():
 
     TODO: implement once algorithms.q_learning_update exists.
     """
-    pytest.skip("TODO: implement after algorithms.q_learning_update is implemented")
+    q = QTable(n_actions=2)
+    q["s'"][0] = 10.0
+    q["s'"][1] = -5.0
+    q["s"][0] = 0.0
+    q["s"][1] = 0.0
+    gamma = 0.9
+    q_learning_update(q, "s", 0, 0.0, "s'", done=False, alpha=0.5, gamma=gamma)
+    expected = 0.5 * (gamma * 10.0)
+    assert q["s"][0] == pytest.approx(expected)
 
 
 def test_sarsa_update_uses_actual_next_action_not_max():
@@ -27,7 +48,14 @@ def test_sarsa_update_uses_actual_next_action_not_max():
 
     TODO: implement once algorithms.sarsa_update exists.
     """
-    pytest.skip("TODO: implement after algorithms.sarsa_update is implemented")
+    q = QTable(n_actions=2)
+    q["s'"][0] = 10.0  # the max, but NOT the action actually taken next
+    q["s'"][1] = -5.0  # the ACTUAL next action
+    q["s"][0] = 0.0
+    gamma = 0.9
+    sarsa_update(q, "s", 0, 0.0, "s'", next_action=1, done=False, alpha=0.5, gamma=gamma)
+    expected = 0.5 * (gamma * (-5.0))
+    assert q["s"][0] == pytest.approx(expected)
 
 
 def test_expected_sarsa_update_uses_policy_expectation():
@@ -37,7 +65,15 @@ def test_expected_sarsa_update_uses_policy_expectation():
 
     TODO: implement once algorithms.expected_sarsa_update exists.
     """
-    pytest.skip("TODO: implement after algorithms.expected_sarsa_update is implemented")
+    q = QTable(n_actions=2)
+    q["s'"][0] = 4.0
+    q["s'"][1] = 2.0
+    q["s"][0] = 0.0
+    gamma, epsilon, alpha = 1.0, 0.5, 1.0
+    expected_sarsa_update(
+        q, "s", 0, 0.0, "s'", done=False, alpha=alpha, gamma=gamma, epsilon=epsilon
+    )
+    assert q["s"][0] == pytest.approx(3.5)
 
 
 def test_linear_epsilon_decay_endpoints_and_linearity():
@@ -47,7 +83,12 @@ def test_linear_epsilon_decay_endpoints_and_linearity():
 
     TODO: implement once algorithms.linear_epsilon_decay is implemented.
     """
-    pytest.skip("TODO: implement after algorithms.linear_epsilon_decay is implemented")
+    start, end, total = 1.0, 0.05, 1000
+    assert linear_epsilon_decay(0, total, start, end) == pytest.approx(start)
+    assert linear_epsilon_decay(total - 1, total, start, end) == pytest.approx(end)
+    d1 = linear_epsilon_decay(100, total, start, end) - linear_epsilon_decay(99, total, start, end)
+    d2 = linear_epsilon_decay(500, total, start, end) - linear_epsilon_decay(499, total, start, end)
+    assert d1 == pytest.approx(d2)  # constant step -> linear, not exponential
 
 
 def test_epsilon_greedy_random_tie_breaking_distribution():
@@ -59,4 +100,47 @@ def test_epsilon_greedy_random_tie_breaking_distribution():
     many trials with a seeded RNG and a chi-square-style sanity check on
     the distribution of selected tied actions.
     """
-    pytest.skip("TODO: implement after algorithms.epsilon_greedy is implemented")
+    rng = random.Random(42)
+    q_values = [5.0, 5.0, 1.0, 0.0]  # actions 0 and 1 tied for max
+    counts = {0: 0, 1: 0}
+    for _ in range(2000):
+        a = epsilon_greedy(q_values, epsilon=0.0, rng=rng)
+        assert a in (0, 1)  # never picks a non-tied action
+        counts[a] += 1
+    assert counts[0] > 0 and counts[1] > 0
+    assert 0.4 < counts[0] / 2000 < 0.6  # roughly uniform
+
+
+def test_save_load_qtable_round_trip(tmp_path):
+    """save_qtable -> load_qtable must reproduce identical Q-values for every
+    visited state, including a GridWorldEnv-shaped state key with a nested
+    monsters tuple -- this is exactly what main.py's watch-only path and
+    every comparison script depend on.
+    """
+    q = QTable(n_actions=4)
+    q[(0, 0, 3, False, False, ())][1] = 2.5
+    q[(1, 2, 0, True, True, ((3, 4), (5, 6)))][3] = -1.25
+
+    path = tmp_path / "level0_q_learning.json"
+    save_qtable(q, path)
+    assert path.exists()
+
+    loaded = load_qtable(path, n_actions=4)
+    monster_state = (1, 2, 0, True, True, ((3, 4), (5, 6)))
+    assert loaded[(0, 0, 3, False, False, ())] == q[(0, 0, 3, False, False, ())]
+    assert loaded[monster_state] == q[monster_state]
+    # An unvisited state still lazily defaults, matching a fresh QTable.
+    assert loaded[(9, 9, 0, False, False, ())] == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_load_qtable_rejects_mismatched_n_actions(tmp_path):
+    """Loading a table trained with a different action-space size must fail
+    loudly, not silently index-error later during a rollout.
+    """
+    q = QTable(n_actions=4)
+    q[(0, 0, 0, False, False, ())][0] = 1.0
+    path = tmp_path / "level0_q_learning.json"
+    save_qtable(q, path)
+
+    with pytest.raises(ValueError):
+        load_qtable(path, n_actions=6)

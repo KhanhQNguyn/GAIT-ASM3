@@ -1,2 +1,105 @@
-*.pyc
+# ============================================================================
+# Project-internal docs and local tool settings (never pushed to the shared repo)
+# ============================================================================
+docs/
+.claude/
 spec_docs/*
+
+# ============================================================================
+# Python Core & Byte-compiled files
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# ============================================================================
+# Virtual Environments (Highly recommended to exclude)
+# ============================================================================
+.venv/
+venv/
+ENV/
+env/
+instance/
+.env/
+
+# ============================================================================
+# Environment Variables & Secrets (CRITICAL: Never commit credentials)
+# ============================================================================
+.env
+.env.local
+.env.*.local
+*.env
+!*.env.example
+secrets.toml
+
+# ============================================================================
+# Distribution / Packaging
+# ============================================================================
+bin/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.manifest
+*.spec
+
+# ============================================================================
+# Testing and Coverage
+# ============================================================================
+htmlcov/
+.tox/
+.nosexml/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+.pytest_cache/**/*
+
+# ============================================================================
+# Jupyter Notebooks and Data Science
+# ============================================================================
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+checkpoint_*
+
+# ============================================================================
+# IDEs and Text Editors (Optional but highly recommended)
+# ============================================================================
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# PyCharm / IntelliJ
+.idea/
+
+# General
+.DS_Store
+Thumbs.db
+
+*.xml
+*.md
+!README.md
+!CLAUDE.md
+!report/report_template.md

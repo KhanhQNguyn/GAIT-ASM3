@@ -47,9 +47,8 @@ class IntrinsicRewardTracker:
         reward into a whole-training-run novelty bonus instead of a
         per-episode one, which is a spec violation.
 
-        TODO: implement.
         """
-        raise NotImplementedError
+        self._visit_counts.clear()
 
     def visit_and_get_bonus(self, state) -> float:
         """Record a visit to `state` for the current episode, then return
@@ -72,7 +71,10 @@ class IntrinsicRewardTracker:
 
         TODO: implement.
         """
-        raise NotImplementedError
+        n = self._visit_counts[state]  # pre-visit count (0 on first visit)
+        bonus = self.strength / math.sqrt(n + 1)
+        self._visit_counts[state] = n + 1
+        return bonus
 
     def visit_count(self, state) -> int:
         """Read-only accessor for the current per-episode visit count of

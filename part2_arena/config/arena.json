@@ -7,8 +7,9 @@
   "player": {
     "max_health": 100.0,
     "max_speed": 6.0,
-    "thrust_accel": 0.35,
-    "rotate_speed_rad": 0.12,
+    "thrust_accel": 0.5,
+    "friction": 0.97,
+    "rotate_speed_rad": 0.14,
     "radius": 14.0,
     "shoot_cooldown_steps": 8,
     "projectile_speed": 12.0,
@@ -16,8 +17,9 @@
   },
   "enemy": {
     "radius": 12.0,
-    "contact_damage": 10.0,
-    "base_health": 30.0
+    "contact_damage": 12.0,
+    "base_health": 30.0,
+    "max_concurrent_enemies": 18
   },
   "spawner": {
     "radius": 18.0,

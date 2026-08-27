@@ -6,6 +6,7 @@ render.py so these functions are trivially unit-testable in isolation
 
 from __future__ import annotations
 
+import json
 import pathlib
 import random
 from collections import defaultdict
@@ -45,28 +46,64 @@ def qtable_path(level_id: int, algorithm: str) -> pathlib.Path:
     return MODELS_DIR / f"level{level_id}_{algorithm}.json"
 
 
+def _state_to_jsonable(state) -> list:
+    """Encode a GridWorldEnv state tuple
+    (agent_x, agent_y, apples_bitmask, has_key, chest_open, monsters_tuple)
+    into a JSON-safe list. monsters_tuple (a tuple of (x, y) pairs) becomes
+    a list of 2-element lists; everything else is already JSON-safe.
+    """
+    ax, ay, bitmask, has_key, chest_open, monsters = state
+    return [ax, ay, bitmask, has_key, chest_open, [list(m) for m in monsters]]
+
+
+def _state_from_jsonable(state_repr: list) -> tuple:
+    """Inverse of _state_to_jsonable -- rebuilds the exact tuple shape
+    GridWorldEnv produces (see its class docstring) so the loaded table
+    indexes identically to a live environment's states.
+    """
+    ax, ay, bitmask, has_key, chest_open, monsters = state_repr
+    return (ax, ay, bitmask, bool(has_key), bool(chest_open), tuple(tuple(m) for m in monsters))
+
+
 def save_qtable(q_table: "QTable", path: str | pathlib.Path) -> None:
     """Serialise a trained QTable to `path` as JSON.
 
-    TODO: implement. Suggested format: {"n_actions": int, "entries":
-    [[state_repr, [q0, q1, ...]], ...]} where state_repr is a JSON-safe
-    encoding of the (hashable) state key (e.g. json.dumps on a list form,
-    or repr()). Create parent dirs. Only non-default (visited) entries need
-    to be written. Keep the format readable so a marker can eyeball it.
+    Format: {"n_actions": int, "entries": [[state_repr, [q0, q1, ...]], ...]}
+    where state_repr is state's JSON-safe encoding. Only entries that were
+    actually visited (i.e. present in the underlying defaultdict) are
+    written -- unvisited states still default to [0.0]*n_actions on load.
     """
-    raise NotImplementedError
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entries = [
+        [_state_to_jsonable(state), list(values)] for state, values in q_table._table.items()
+    ]
+    data = {"n_actions": q_table.n_actions, "entries": entries}
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
 
 
 def load_qtable(path: str | pathlib.Path, n_actions: int) -> "QTable":
     """Inverse of save_qtable: rebuild a QTable from the JSON at `path`.
 
-    TODO: implement. Reconstruct each state key from its stored encoding so
-    the loaded table indexes identically to the one env.py produces at
-    runtime (this is why the state representation must be pinned -- see
-    env.py's GridWorldEnv docstring). Raise a clear error if n_actions in
-    the file disagrees with the argument.
+    Raises ValueError if the file's n_actions disagrees with the argument
+    (e.g. env's action space changed since the table was trained).
     """
-    raise NotImplementedError
+    path = pathlib.Path(path)
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    file_n_actions = data["n_actions"]
+    if file_n_actions != n_actions:
+        raise ValueError(
+            f"{path}: saved Q-table has n_actions={file_n_actions}, "
+            f"but n_actions={n_actions} was requested"
+        )
+
+    q_table = QTable(n_actions)
+    for state_repr, values in data["entries"]:
+        q_table._table[_state_from_jsonable(state_repr)] = list(values)
+    return q_table
 
 
 def linear_epsilon_decay(
@@ -79,7 +116,10 @@ def linear_epsilon_decay(
 
     TODO: implement the linear interpolation.
     """
-    raise NotImplementedError
+    if total_episodes <= 1:
+        return epsilon_start
+    frac = episode / (total_episodes - 1)
+    return epsilon_start + (epsilon_end - epsilon_start) * frac
 
 
 def epsilon_greedy(q_values: list[float], epsilon: float, rng: random.Random) -> int:
@@ -90,9 +130,14 @@ def epsilon_greedy(q_values: list[float], epsilon: float, rng: random.Random) ->
     TODO:
       - with probability epsilon, return a uniformly random action index.
       - otherwise, find all indices tied for max(q_values) and pick one of
-        them uniformly at random via `rng`.
+            them uniformly at random via `rng`.
     """
-    raise NotImplementedError
+    n_actions = len(q_values)
+    if rng.random() < epsilon:
+        return rng.randrange(n_actions)
+    max_q = max(q_values)
+    tied = [i for i, q in enumerate(q_values) if q == max_q]
+    return rng.choice(tied)
 
 
 def q_learning_update(
@@ -113,7 +158,12 @@ def q_learning_update(
 
     TODO: implement, mutating q_table in place.
     """
-    raise NotImplementedError
+    q = q_table[state]
+    if done:
+        target = reward
+    else:
+        target = reward + gamma * max(q_table[next_state])
+    q[action] += alpha * (target - q[action])
 
 
 def sarsa_update(
@@ -136,7 +186,12 @@ def sarsa_update(
 
     TODO: implement, mutating q_table in place.
     """
-    raise NotImplementedError
+    q = q_table[state]
+    if done:
+        target = reward
+    else:
+        target = reward + gamma * q_table[next_state][next_action]
+    q[action] += alpha * (target - q[action])
 
 
 def expected_sarsa_update(
@@ -162,4 +217,12 @@ def expected_sarsa_update(
 
     TODO: implement, mutating q_table in place.
     """
-    raise NotImplementedError
+    q = q_table[state]
+    if done:
+        target = reward
+    else:
+        n_actions = len(q_table[next_state])
+        q_next = q_table[next_state]
+        expectation = (epsilon / n_actions) * sum(q_next) + (1 - epsilon) * max(q_next)
+        target = reward + gamma * expectation
+    q[action] += alpha * (target - q[action])

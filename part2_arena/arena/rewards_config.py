@@ -37,38 +37,58 @@ agent reliably prioritizes survival."""
 # --- Optional shaping terms (<= 2, must be justified) ---
 
 R_APPROACH_NEAREST_ENEMY: float = 0.01
-"""Small per-step shaping reward for reducing distance to the nearest enemy,
-to speed up early training before the agent discovers that engaging enemies
-is valuable at all. Document the final decision (kept/removed/tuned) in
-report/report_template.md section 3.
+"""DECISION (Member D): KEPT, at 0.01. Small per-step shaping reward for
+reducing distance to the nearest enemy, intended to speed up early training
+before the agent has discovered that engaging enemies is valuable at all.
 
 REQUIRED implementation shape (not optional -- an ungated flat 0.01/step
 over a 1200-step episode is +12, which rivals R_KILL_ENEMY=5 and lets the
-agent farm this term by loitering, see docs/AUDIT_main.md 5.8):
+agent farm this term by loitering, see docs/AUDIT_main.md 5.8). All three
+are implemented in rewards.py::compute_reward:
   - reward only the per-step DECREASE in distance to the nearest enemy
     (distance_delta < 0), scaled by this constant -- not mere proximity;
   - apply it ONLY while the nearest enemy is outside weapon/engage range
-    (so it stops paying out once the agent should be shooting, not chasing);
-  - cap the cumulative per-episode contribution of this term (e.g. to
-    <= R_KILL_ENEMY) so it can never dominate the real objective."""
+    (reuses SHOT_NO_TARGET_RADIUS below as the engage-range threshold --
+    the same distance already used to decide "close enough to be a valid
+    shooting target" is exactly "close enough that the agent should be
+    shooting, not still being paid to approach");
+  - cap the cumulative per-episode contribution of this term at
+    R_KILL_ENEMY, via the optional step_events["cumulative_approach_reward"]
+    (the running per-episode total BEFORE this step, tracked by the
+    caller) -- see compute_reward's docstring for the exact clamp.
+
+Document the final decision (kept/removed/tuned) in
+report/report_template.md section 3."""
 
 R_SHOOT_WHILE_NO_TARGET: float = 0.0
-"""TODO justify or remove: placeholder for a potential small penalty on
-shooting with no enemy in range, to discourage spamming the shoot action.
-Defaults to 0.0 (disabled) -- only enable this with a documented
-justification, since an undocumented shaping term is worse for the report
-than not having one."""
+"""DECISION (Member D): KEPT DISABLED, at 0.0. The spec does not give the
+player a limited ammo/cooldown resource that a "wasted shot" would deplete,
+so spam-shooting has no direct mechanical cost worth discouraging via
+reward. Enabling a penalty here risks discouraging legitimate exploratory
+fire early in training, before the agent has learned to aim -- i.e. it
+would likely slow convergence more than it saves. Revisit only if real
+training runs show the agent spamming SHOOT in a way that visibly hurts
+performance (e.g. via the reward decomposition dashboard,
+scripts/plot_reward_decomposition.py)."""
 
-SHOT_NO_TARGET_RADIUS: float = 150.0
+SHOT_NO_TARGET_RADIUS: float = 350.0
 """Distance threshold (in arena world units) beyond which the nearest enemy
 is not considered a valid target for R_SHOOT_WHILE_NO_TARGET purposes.
 A shot fired when the nearest enemy is farther than this value sets
 "shot_fired_with_no_target" in step_events (see rewards.py).
 
-The arena is 960×680 (core_env.ARENA_WIDTH/HEIGHT), diagonal ≈ 1173 world
-units. 150.0 is therefore ~13% of the diagonal -- deliberately tight: a
-shot only counts as "on target" when an enemy is fairly close, so the
-R_SHOOT_WHILE_NO_TARGET penalty discourages long-range spray without
-punishing reasonable mid-range shots. TODO: tune against training behaviour
-(and against the real weapon/projectile range in config/arena.json) and
-record the final value in report section 3."""
+Derived (not a placeholder) from the real arena dimensions in core_env.py:
+ARENA_WIDTH=960, ARENA_HEIGHT=680 -> diagonal = sqrt(960**2 + 680**2)
+~= 1176.4 -> 0.3 * diagonal ~= 352.9, rounded to 350.0 -- roughly 30% of
+the diagonal, deliberately tight so a shot only counts as "on target" when
+an enemy is fairly close. Also now doing double duty as
+R_APPROACH_NEAREST_ENEMY's engage-range gate (see above): both uses share
+the same underlying question ("is the nearest enemy close enough that the
+agent should be shooting, not just approaching or spraying"), so one
+tuned distance serves both rather than drifting into two similar
+constants. R_SHOOT_WHILE_NO_TARGET itself is currently disabled (see its
+decision above), so this value's shot-penalty role is inert for now, but
+its distance/gating role for R_APPROACH_NEAREST_ENEMY is active. TODO:
+tune against training behaviour (and against the real weapon/projectile
+range in config/arena.json) and record the final value in report
+section 3/4."""

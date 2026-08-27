@@ -7,7 +7,11 @@ only as Q-learning/SARSA silently never converging (see docs/AUDIT_main.md
 reachability check; they do NOT train an agent.
 """
 
+from collections import deque
+
 import pytest
+
+from src.env import CONFIG_DIR, GridWorldEnv
 
 LEVEL_IDS = [0, 1, 2, 3, 4, 5, 6]
 
@@ -22,7 +26,8 @@ def test_level_loads_and_validates(level_id):
     validation (currently it only json.loads). Construct the path from
     env.CONFIG_DIR and assert no ValueError.
     """
-    pytest.skip("TODO: implement once GridWorldEnv._load_level validates")
+    path = CONFIG_DIR / f"level{level_id}.json"
+    GridWorldEnv._load_level(path)  # raises ValueError on any schema violation
 
 
 @pytest.mark.parametrize("level_id", LEVEL_IDS)
@@ -38,4 +43,29 @@ def test_level_is_solvable(level_id):
     every apple coord, the key coord, and the chest coord. Does not need
     GridWorldEnv -- read the JSON directly.
     """
-    pytest.skip("TODO: implement BFS reachability check")
+    import json
+
+    with open(CONFIG_DIR / f"level{level_id}.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    gw, gh = data["grid_size"]
+    rocks = {tuple(r) for r in data["rocks"]}
+    start = tuple(data["agent_start"])
+
+    reachable = {start}
+    queue = deque([start])
+    while queue:
+        x, y = queue.popleft()
+        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+            nx, ny = x + dx, y + dy
+            in_bounds = 0 <= nx < gw and 0 <= ny < gh
+            if in_bounds and (nx, ny) not in rocks and (nx, ny) not in reachable:
+                reachable.add((nx, ny))
+                queue.append((nx, ny))
+
+    for apple in data["apples"]:
+        assert tuple(apple) in reachable, f"level{level_id}: apple {apple} unreachable from {start}"
+    if data["key"] is not None:
+        assert tuple(data["key"]) in reachable, f"level{level_id}: key unreachable from {start}"
+    if data["chest"] is not None:
+        assert tuple(data["chest"]) in reachable, f"level{level_id}: chest unreachable from {start}"
