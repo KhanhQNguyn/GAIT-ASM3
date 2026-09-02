@@ -99,7 +99,6 @@ checkpoint_*
 Thumbs.db
 
 *.xml
-*.md
 !README.md
 !CLAUDE.md
 !report/report_template.md
