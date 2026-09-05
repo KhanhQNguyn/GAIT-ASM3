@@ -97,7 +97,7 @@ checkpoint_*
 # General
 .DS_Store
 Thumbs.db
-
+*.csv
 *.xml
 !README.md
 !CLAUDE.md
