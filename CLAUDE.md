@@ -25,6 +25,16 @@ Two things worth knowing before extending this further:
   these smoke-test artifacts for finished evidence, and re-run `train.py` at full `--timesteps`
   before final submission (this will overwrite `models/style{1,2}_ppo_tuned_v1*`).
 
+**Read `docs/RULES.md` before editing any reward logic (`rewards_constants.py`, `rewards.py`,
+`rewards_config.py`), any update rule (`algorithms.py`), `intrinsic.py`, `obs.py`, or any
+evaluation/comparison script.** It encodes real grading feedback from a prior submission of this
+same assignment as numbered rules (`R-ALG-*`, `R-REWARD-*`, `R-OBS-*`, `R-EVAL-*`, ...) — e.g.
+terminal transitions must not bootstrap, off-policy/on-policy targets must not blur, Part II is
+hard-capped at ≤8 reward terms (5 required + ≤2 justified/gated shaping terms), observations must
+encode perception never strategy, and single-episode "evaluation" doesn't count as evaluation.
+Section 7 has a pre-submission self-audit `grep` sequence — run it before any final commit that
+touches these areas.
+
 `docs/RUBRIC_MAP.md` maps each module/function to the exact rubric row and point value it
 satisfies. Its **"Pre-implementation fixes applied"** section lists spec-fidelity decisions baked
 into the codebase that must not be silently reverted — notably: agent moving onto a monster tile =
