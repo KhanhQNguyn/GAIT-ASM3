@@ -176,6 +176,19 @@ class GridWorldRenderer:
             "speed": speed,
         }
 
+    def _draw_floor(self, gw: int, gh: int, off_y: int) -> None:
+        """Tile a floor sprite across the whole grid if assets/sprites/floor.png
+        exists. Falls back to doing nothing (leaving the plain background fill)
+        if the file is missing -- never crashes, never required."""
+        floor = load_sprite("floor", (TILE_SIZE_PX, TILE_SIZE_PX))
+        if floor is None:
+            return
+        for ty in range(gh):
+            for tx in range(gw):
+                x = tx * TILE_SIZE_PX
+                y = off_y + ty * TILE_SIZE_PX
+                self._screen.blit(floor, (x, y))
+
     def draw(self, env_state: dict) -> None:
         """Draw one frame from a plain-data snapshot.
 
@@ -185,6 +198,12 @@ class GridWorldRenderer:
                 key_pos, chest_pos, monsters, has_key, step_count, max_steps.
         """
         self._screen.fill(COLORS["background"])
+
+        gw: int = env_state["grid_w"]
+        gh: int = env_state["grid_h"]
+        off_y = self._hud_height  # vertical offset for grid (HUD at top)
+
+        self._draw_floor(gw, gh, off_y)
         dt = self._clock.get_time() / 1000.0 or (1.0 / 60.0)
 
         gw: int = env_state["grid_w"]
