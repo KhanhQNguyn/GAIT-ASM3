@@ -103,3 +103,4 @@ Thumbs.db
 !README.md
 !CLAUDE.md
 !report/report_template.md
+!report/figures/*.md
