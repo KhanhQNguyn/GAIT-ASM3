@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import pygame
 
+from src import assets
+
 LEVEL_IDS = [0, 1, 2, 3, 4, 5, 6]
 ALGORITHMS = ["q_learning", "sarsa", "expected_sarsa"]
 
@@ -23,6 +25,11 @@ _MUTED = (130, 130, 160)
 _SEL_BG = (40, 90, 150)
 _WATCH_ON = (60, 180, 100)
 _WATCH_OFF = (120, 60, 60)
+
+
+def _lighten(color: tuple, amt: int = 20) -> tuple:
+    """Return `color` brightened by `amt` per RGB channel, clamped to 255."""
+    return tuple(min(255, c + amt) for c in color[:3]) + tuple(color[3:])
 
 
 class MenuSelection:
@@ -65,16 +72,10 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
         MenuSelection on confirm, or None if the window is closed.
     """
     pygame.font.init()
-    try:
-        font_title = pygame.font.SysFont("Segoe UI", 32, bold=True)
-        font_head = pygame.font.SysFont("Segoe UI", 18, bold=True)
-        font_body = pygame.font.SysFont("Segoe UI", 16)
-        font_btn = pygame.font.SysFont("Segoe UI", 18, bold=True)
-    except Exception:
-        font_title = pygame.font.Font(None, 40)
-        font_head = pygame.font.Font(None, 24)
-        font_body = pygame.font.Font(None, 20)
-        font_btn = pygame.font.Font(None, 24)
+    font_title = assets.load_font(32, bold=True)
+    font_head = assets.load_font(18, bold=True)
+    font_body = assets.load_font(16)
+    font_btn = assets.load_font(18, bold=True)
 
     screen_w, screen_h = screen.get_size()
     clock = pygame.time.Clock()
@@ -94,10 +95,11 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
         bg_norm=_PANEL,
         text_col=_TEXT,
         radius: int = 8,
+        hovered: bool = False,
     ) -> None:
-        bg = bg_sel if selected else bg_norm
+        bg = bg_sel if selected else (_lighten(bg_norm) if hovered else bg_norm)
         pygame.draw.rect(surf, bg, rect, border_radius=radius)
-        border_col = _ACCENT if selected else _MUTED
+        border_col = _ACCENT if (selected or hovered) else _MUTED
         pygame.draw.rect(surf, border_col, rect, width=2, border_radius=radius)
         txt = font.render(label, True, text_col)
         tx = rect.centerx - txt.get_width() // 2
@@ -155,9 +157,10 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
     running = True
     while running:
         screen.fill(_BG)
+        mouse_pos = pygame.mouse.get_pos()
 
         # Title
-        title_surf = font_title.render("🎮  Gridworld RL Trainer", True, _ACCENT)
+        title_surf = font_title.render("Gridworld RL Trainer", True, _ACCENT)
         screen.blit(title_surf, (screen_w // 2 - title_surf.get_width() // 2, 20))
 
         layout = _layout()
@@ -168,7 +171,8 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
         screen.blit(lev_label, (first_rect.x, first_rect.y - 26))
 
         for i, (lvl_id, rect) in enumerate(zip(LEVEL_IDS, layout["lev_rects"])):
-            _draw_button(screen, rect, f"L{lvl_id}", i == sel_level, font_btn)
+            _draw_button(screen, rect, f"L{lvl_id}", i == sel_level, font_btn,
+                         hovered=rect.collidepoint(mouse_pos))
 
         # Section label: Algorithm
         algo_label = font_head.render("Select Algorithm", True, _ACCENT2)
@@ -177,14 +181,16 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
 
         algo_display = {"q_learning": "Q-Learning", "sarsa": "SARSA", "expected_sarsa": "Expected SARSA"}
         for i, (algo, rect) in enumerate(zip(ALGORITHMS, layout["algo_rects"])):
-            _draw_button(screen, rect, algo_display.get(algo, algo), i == sel_algo, font_btn)
+            _draw_button(screen, rect, algo_display.get(algo, algo), i == sel_algo, font_btn,
+                         hovered=rect.collidepoint(mouse_pos))
 
         # Watch toggle
         toggle_rect = layout["toggle_rect"]
-        toggle_label = "▶  Watch Only" if watch_only else "🏋  Train + Render"
+        toggle_label = "Watch Only" if watch_only else "Train + Render"
         toggle_bg = _WATCH_ON if watch_only else _WATCH_OFF
         _draw_button(screen, toggle_rect, toggle_label, False, font_btn,
-                     bg_norm=toggle_bg, text_col=(240, 240, 240))
+                     bg_norm=toggle_bg, text_col=(240, 240, 240),
+                     hovered=toggle_rect.collidepoint(mouse_pos))
         pygame.draw.rect(screen, (_ACCENT if watch_only else _ACCENT2),
                          toggle_rect, width=2, border_radius=8)
 
@@ -199,8 +205,9 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
 
         # Start button
         start_rect = layout["start_rect"]
-        _draw_button(screen, start_rect, "▶  START", False, font_btn,
-                     bg_norm=(50, 120, 80), text_col=(220, 255, 220))
+        _draw_button(screen, start_rect, "START", False, font_btn,
+                     bg_norm=(50, 120, 80), text_col=(220, 255, 220),
+                     hovered=start_rect.collidepoint(mouse_pos))
         pygame.draw.rect(screen, (80, 220, 120), start_rect, width=2, border_radius=8)
 
         # Keyboard hint

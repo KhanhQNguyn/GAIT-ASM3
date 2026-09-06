@@ -24,12 +24,13 @@ for _p in (str(_HERE), str(_HERE / "src")):
 
 import pygame  # noqa: E402  (must follow the sys.path shim above)
 
+from src import assets  # noqa: E402
 from src.menu import run_menu  # noqa: E402
 from src.trainer import evaluate_policy, make_env, train  # noqa: E402
 from src.algorithms import load_qtable, qtable_path, save_qtable  # noqa: E402
 from src.render import GridWorldRenderer, TILE_SIZE_PX  # noqa: E402
 
-# Window dimensions — the renderer adds a HUD strip on top; we need the base
+# Window dimensions - the renderer adds a HUD strip on top; we need the base
 # grid size from the level, which we get after menu selection.
 _DEFAULT_GRID = (10, 10)
 
@@ -46,14 +47,14 @@ def main() -> None:
     """
     pygame.init()
 
-    # Menu window — fixed size 700×600 gives plenty of room for the picker
+    # Menu window - fixed size 700x600 gives plenty of room for the picker
     MENU_W, MENU_H = 700, 600
     screen = pygame.display.set_mode((MENU_W, MENU_H))
-    pygame.display.set_caption("Gridworld RL — Menu")
+    pygame.display.set_caption("Gridworld RL - Menu")
 
     selection = run_menu(screen)
     if selection is None:
-        # User closed the window — clean exit
+        # User closed the window - clean exit
         pygame.quit()
         return
 
@@ -61,14 +62,14 @@ def main() -> None:
     env = make_env(selection.level_id)
     gw, gh = env.grid_size
 
-    # Resize window to fit the gridworld + HUD
-    from src.render import GridWorldRenderer, TILE_SIZE_PX
+    # Resize window to fit the gridworld + HUD + control hint strip
     HUD_H = 56
+    HINT_H = 24
     win_w = gw * TILE_SIZE_PX
-    win_h = gh * TILE_SIZE_PX + HUD_H
+    win_h = gh * TILE_SIZE_PX + HUD_H + HINT_H
     screen = pygame.display.set_mode((win_w, win_h))
     pygame.display.set_caption(
-        f"Gridworld — Level {selection.level_id} | {selection.algorithm.replace('_', ' ').title()}"
+        f"Gridworld - Level {selection.level_id} | {selection.algorithm.replace('_', ' ').title()}"
     )
 
     renderer = GridWorldRenderer(grid_size=(gw, gh), caption=pygame.display.get_caption()[0])
@@ -111,10 +112,7 @@ def main() -> None:
 def _show_error(screen: pygame.Surface, message: str) -> None:
     """Display an error message inside the pygame window until closed."""
     pygame.font.init()
-    try:
-        font = pygame.font.SysFont("Segoe UI", 18)
-    except Exception:
-        font = pygame.font.Font(None, 22)
+    font = assets.load_font(18)
 
     clock = pygame.time.Clock()
     lines = message.split("\n")

@@ -23,6 +23,7 @@ from src.algorithms import (
 from src.env import Action, GridWorldEnv
 from src.intrinsic import IntrinsicRewardTracker
 from src.logger import EpisodeLogger
+from src.render import GridWorldRenderer
 from src.seed_utils import set_seed
 
 CONFIG_DIR = pathlib.Path(__file__).resolve().parent.parent / "config"
@@ -149,12 +150,10 @@ def train(
         IntrinsicRewardTracker(cfg["intrinsic_reward_strength"]) if use_intrinsic_reward else None
     )
 
-    renderer = None
+    renderer: GridWorldRenderer | None = None
     if render:
-        from src.render import GridWorldRenderer
-
         renderer = GridWorldRenderer(
-            grid_size=env.grid_size, caption=f"Training — level {level_id} / {algorithm}"
+            grid_size=env.grid_size, caption=f"Training - level {level_id} / {algorithm}"
         )
 
     log_path = csv_log_path or _default_csv_log_path(level_id, algorithm, use_intrinsic_reward)
@@ -180,6 +179,28 @@ def train(
             done = False
 
             while not done and steps < cfg["max_steps_per_episode"]:
+                if render:
+                    assert renderer is not None
+                    while renderer.is_paused:
+                        renderer.set_hud_info(
+                            episode=episode, epsilon=epsilon,
+                            return_=total_env_return, step=steps,
+                            paused=True, speed=renderer._speed_multiplier,
+                        )
+                        renderer.draw(env.get_state_snapshot())
+                        if not renderer.handle_events():
+                            done = True
+                            stop_requested = True
+                            break
+                    if done:
+                        break
+                    if renderer.consume_restart_request():
+                        state = env.reset()
+                        action = epsilon_greedy(q_table[state], epsilon, rng)
+                        total_env_return = 0.0
+                        steps = 0
+                        died = False
+                        continue
                 result = env.step(Action(action))
                 next_state, env_reward, done = result.state, result.reward, result.done
 
@@ -213,12 +234,15 @@ def train(
                 )
 
                 if render:
+                    assert renderer is not None
                     renderer.set_hud_info(
-                        episode=episode, epsilon=epsilon, return_=total_env_return, step=steps
+                        episode=episode, epsilon=epsilon, return_=total_env_return,
+                        step=steps, paused=renderer.is_paused,
+                        speed=renderer._speed_multiplier,
                     )
                     renderer.draw(env.get_state_snapshot())
                     if not renderer.handle_events():
-                        done = True  # window closed — end this episode...
+                        done = True  # window closed - end this episode...
                         stop_requested = True  # ...and stop training entirely
 
                 state, action = next_state, next_action
@@ -238,10 +262,8 @@ def evaluate_policy(env: GridWorldEnv, q_table: QTable, render: bool = True) -> 
     ("learned policy, not random" evidence) and for verifying convergence.
     """
     rng = set_seed(0)  # epsilon=0 makes tie-breaking the only randomness left
-    renderer = None
+    renderer: GridWorldRenderer | None = None
     if render:
-        from src.render import GridWorldRenderer
-
         renderer = GridWorldRenderer(grid_size=env.grid_size, caption="Watching learned policy")
 
     try:
@@ -252,6 +274,26 @@ def evaluate_policy(env: GridWorldEnv, q_table: QTable, render: bool = True) -> 
         done = False
 
         while not done:
+            if render:
+                assert renderer is not None
+                while renderer.is_paused:
+                    renderer.set_hud_info(
+                        episode=0, epsilon=0.0, return_=total_return, step=steps,
+                        paused=True, speed=renderer._speed_multiplier,
+                    )
+                    renderer.draw(env.get_state_snapshot())
+                    if not renderer.handle_events():
+                        done = True
+                        break
+                if done:
+                    break
+                if renderer.consume_restart_request():
+                    state = env.reset()
+                    total_return = 0.0
+                    steps = 0
+                    died = False
+                    action = epsilon_greedy(q_table[state], 0.0, rng)
+                    continue
             action = epsilon_greedy(q_table[state], 0.0, rng)
             result = env.step(Action(action))
             total_return += result.reward
@@ -263,7 +305,11 @@ def evaluate_policy(env: GridWorldEnv, q_table: QTable, render: bool = True) -> 
             state = result.state
 
             if render:
-                renderer.set_hud_info(episode=0, epsilon=0.0, return_=total_return, step=steps)
+                assert renderer is not None
+                renderer.set_hud_info(
+                    episode=0, epsilon=0.0, return_=total_return, step=steps,
+                    paused=renderer.is_paused, speed=renderer._speed_multiplier,
+                )
                 renderer.draw(env.get_state_snapshot())
                 if not renderer.handle_events():
                     break
