@@ -11,6 +11,16 @@ Enemies/spawners destroyed are derived from info["reward_breakdown"]
 constants) rather than a separate counter, since RewardBreakdown is
 already the one place those events are named (arena/rewards.py).
 
+CAVEAT (verified against arena/core_env.py::_resolve_collisions): only
+enemies destroyed by a PLAYER PROJECTILE increment "enemies_killed" /
+kill_enemy. An enemy that touches the player is also removed from the
+world (dealing contact damage once) but is NOT counted here -- so
+"avg_enemies_destroyed" measures shot-kills specifically, not every way
+an enemy can be removed. A style/policy that clears enemies mostly by
+tanking contact hits will show a low number here despite genuinely
+engaging enemies; cross-check against avg_return / survival before
+concluding a style "never destroys enemies."
+
 The written interpretation of these numbers (e.g. "why style 2
 outperforms style 1") is report content, out of scope here -- this script
 only produces the real table the interpretation would rest on.
@@ -144,7 +154,9 @@ def main() -> None:
     out_path.write_text(
         f"# Style 1 vs Style 2 comparison ({args.algo}, {args.config}, "
         f"curriculum={args.curriculum}, {args.episodes} episodes each, seed={args.seed})\n\n"
-        + table,
+        + table
+        + "\n*Enemies destroyed = via player projectile only (see this script's module "
+        "docstring) -- an enemy destroyed by touching the player is not counted here.*\n",
         encoding="utf-8",
     )
     print(f"Saved comparison table to: {out_path}")

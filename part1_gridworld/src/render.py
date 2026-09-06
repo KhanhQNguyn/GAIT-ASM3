@@ -347,8 +347,12 @@ class GridWorldRenderer:
         self._screen.blit(ret_label, (280, 6))
         self._screen.blit(ret_val, (280, 22))
 
-        # Paused / speed status, right-aligned to the HUD panel edge
-        speed_text = f"x{self._hud.get('speed', 1.0):.1f}"
+        # Paused / speed status, right-aligned to the HUD panel edge.
+        # NOTE: avoid "x"/"X" in HUD text -- the bundled Kenney Pixel font
+        # renders both glyphs looking like "H" at HUD text sizes (verified
+        # by rendering the font directly), which made "x1.0" misread as
+        # "H1.0". "SPD" reads unambiguously with the same glyph set.
+        speed_text = f"SPD {self._hud.get('speed', 1.0):.1f}"
         is_paused = bool(self._hud.get("paused"))
         status_text = f"PAUSED  {speed_text}" if is_paused else speed_text
         status_color = (255, 120, 120) if is_paused else (200, 200, 220)

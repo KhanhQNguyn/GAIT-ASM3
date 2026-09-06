@@ -179,7 +179,11 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
         algo_rect0 = layout["algo_rects"][0]
         screen.blit(algo_label, (algo_rect0.x, algo_rect0.y - 26))
 
-        algo_display = {"q_learning": "Q-Learning", "sarsa": "SARSA", "expected_sarsa": "Expected SARSA"}
+        # "Expected SARSA" avoided here on purpose: the bundled Kenney Pixel
+        # font renders "x"/"X" looking like "H" at button-label sizes
+        # (verified by rendering the font directly) -- "E-SARSA" is a
+        # standard-enough RL shorthand and sidesteps the glyph entirely.
+        algo_display = {"q_learning": "Q-Learning", "sarsa": "SARSA", "expected_sarsa": "E-SARSA"}
         for i, (algo, rect) in enumerate(zip(ALGORITHMS, layout["algo_rects"])):
             _draw_button(screen, rect, algo_display.get(algo, algo), i == sel_algo, font_btn,
                          hovered=rect.collidepoint(mouse_pos))

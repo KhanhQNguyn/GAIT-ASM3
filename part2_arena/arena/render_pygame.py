@@ -266,6 +266,20 @@ class ArenaRenderer:
         )
         self.screen.blit(self.font.render(line, True, COLORS["hud_text"]), (8, 8))
 
+        # Pause/speed status -- Part I's render.py shows this in its HUD
+        # (see PLAN.md Phase 5.A: "mirrors Part I's render.py design so the
+        # two parts feel consistent in the video"); this side never
+        # actually rendered it even though is_paused/speed_multiplier were
+        # already tracked, so a viewer of a paused/sped-up eval recording
+        # had no on-screen indication of either state.
+        status_text = f"x{self._speed_multiplier:.1f}"
+        status_color = COLORS["hud_text"]
+        if self._paused:
+            status_text = f"PAUSED  {status_text}"
+            status_color = (255, 120, 120)
+        status_surf = self.font.render(status_text, True, status_color)
+        self.screen.blit(status_surf, (self.width - status_surf.get_width() - 8, 8))
+
     def _draw_debug(self, extra: dict) -> None:
         if self.font is None:
             return
