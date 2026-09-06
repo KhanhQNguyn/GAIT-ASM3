@@ -1,0 +1,39 @@
+Control style 2; action space = ['NO_OP', 'MOVE_UP', 'MOVE_DOWN', 'MOVE_LEFT', 'MOVE_RIGHT', 'SHOOT']
+OBS_DIM = 15, OBSERVATION_SPEC has 15 entries
+
+=== ArenaCoreEnv (literal spec API) ===
+reset() -> type=ndarray shape=(15,) dtype=float32
+reset() -> array([ 0.   ,  0.   ,  0.   ,  0.   ,  0.   ,  1.   ,  1.   ,  1.   ,  0.   ,  1.   , -0.575,
+       -1.   ,  0.   , -1.   , -1.   ], dtype=float32)
+
+step(1) returned a 4-tuple: (obs, reward, done, info)
+  obs    = array([ 0.    , -0.0176,  0.    , -1.    ,  0.    ,  1.    ,  1.    ,  1.    ,  0.    ,  1.    ,
+       -0.5852, -1.    ,  0.    , -1.    , -1.    ], dtype=float32)
+  reward = 0.0
+  done   = False
+  info   = {'reward_breakdown': RewardBreakdown(kill_enemy=0.0, kill_spawner=0.0, phase_progress=0.0, damage_taken=-0.0, death=-0.0, approach_nearest_enemy=0.0, shoot_while_no_target=0.0),
+             'died': False, 'truncated': False}
+
+=== ArenaGymEnv (Gymnasium 5-tuple, what SB3 trains against) ===
+reset(seed=0) -> (obs, info) with obs.shape=(15,), info={}
+step(1) returned a 5-tuple:
+  terminated = False, truncated = False
+
+=== Per-feature values (OBSERVATION_SPEC order) ===
+  [ 0] player_x                                     =  0.0000
+  [ 1] player_y                                     = -0.0176
+  [ 2] player_vx                                    =  0.0000
+  [ 3] player_vy                                    = -1.0000
+  [ 4] player_orientation_sin                       =  0.0000
+  [ 5] player_orientation_cos                       =  1.0000
+  [ 6] player_health_frac                           =  1.0000
+  [ 7] nearest_enemy_distance                       =  1.0000
+  [ 8] nearest_enemy_direction_sin                  =  0.0000
+  [ 9] nearest_enemy_direction_cos                  =  1.0000
+  [10] nearest_spawner_distance                     = -0.5852
+  [11] nearest_spawner_direction_sin                = -1.0000
+  [12] nearest_spawner_direction_cos                =  0.0000
+  [13] current_phase_frac                           = -1.0000
+  [14] num_active_enemies_frac                      = -1.0000
+
+All 15 features within the declared [-1, 1] bound: True
