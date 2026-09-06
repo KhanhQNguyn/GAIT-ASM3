@@ -13,13 +13,17 @@ when feat/member-c-khang was merged -- see APPROACH_REWARD_EPISODE_CAP and
 the two OPTIONAL step_events keys below. Member D owns: the constant
 VALUES in rewards_config.py and tests/test_reward_terms.py.
 
-Member C's recommendation, per docs/message.txt (keep shaping minimal;
-don't reward-shape the strategy): consider R_APPROACH_NEAREST_ENEMY = 0.0
-and R_SHOOT_WHILE_NO_TARGET = 0.0 so only the 5 spec-required terms are
-live, and reconsider R_DEATH = -100 (20x a kill -- large enough to
-dominate the signal; justify with evidence in report section 3 or reduce
-it). Not yet applied -- flagged for the team to weigh against the current
-gated/capped design before the report is written.
+Final reward-shaping decision: see rewards_config.py's per-constant
+docstrings (dated team decision) -- do not reintroduce unresolved language
+here. Both optional shaping terms are RATIFIED as-is:
+R_APPROACH_NEAREST_ENEMY stays at 0.01 (gated outside engage range and
+capped per-episode at APPROACH_REWARD_EPISODE_CAP, so it can never
+out-earn a single kill) and R_SHOOT_WHILE_NO_TARGET stays disabled at 0.0.
+Member C's alternative recommendation (drop both to 0.0, per
+docs/message.txt) was considered and not adopted; the disagreement is
+recorded in docs/DECISIONS.md rather than left open in this docstring.
+R_DEATH's final value is decided separately, with ablation evidence --
+see docs/DECISIONS.md and rewards_config.py::R_DEATH.
 -------------------------------------------------------------------------
 """
 
