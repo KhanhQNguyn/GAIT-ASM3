@@ -23,6 +23,18 @@
       "gae_lambda": 0.95,
       "clip_range": 0.2,
       "ent_coef": 0.005
+    },
+    "tuned_v2": {
+      "policy": "MlpPolicy",
+      "net_arch": [256, 256],
+      "learning_rate": 0.0001,
+      "n_steps": 2048,
+      "batch_size": 256,
+      "n_epochs": 15,
+      "gamma": 0.99,
+      "gae_lambda": 0.95,
+      "clip_range": 0.15,
+      "ent_coef": 0.02
     }
   },
   "dqn": {
@@ -53,5 +65,5 @@
       "exploration_final_eps": 0.02
     }
   },
-  "_notes": "Per-algorithm hyperparameter presets for scripts/train.py --config <name> (see docs/AUDIT_main.md 5.6 and report section 4). 'baseline' is close to Stable-Baselines3 defaults; 'tuned_v1' is the first deliberate tuning pass. train.py::build_model should load the requested preset from here and stamp its name into the model filename and TensorBoard run name so a sweep is self-documenting. Add further presets (tuned_v2, ...) rather than editing existing ones, so past runs stay reproducible. net_arch feeds policy_kwargs. These values are unvalidated starting points."
+  "_notes": "Per-algorithm hyperparameter presets for scripts/train.py --config <name> (see docs/AUDIT_main.md 5.6 and report section 4). 'baseline' is close to Stable-Baselines3 defaults; 'tuned_v1' is the first deliberate tuning pass. train.py::build_model should load the requested preset from here and stamp its name into the model filename and TensorBoard run name so a sweep is self-documenting. Add further presets (tuned_v2, ...) rather than editing existing ones, so past runs stay reproducible. net_arch feeds policy_kwargs. These values are unvalidated starting points. tuned_v2 is the third configuration for the report's hyperparameter-exploration section: relative to tuned_v1 it doubles network width (128->256), quarters the learning rate (2.5e-4 -> 1e-4), shortens the rollout (n_steps 4096 -> 2048) with a larger minibatch and more epochs per rollout, tightens clip_range (0.2 -> 0.15) and raises ent_coef fourfold (0.005 -> 0.02). The theme is 'more exploration, smaller and more conservative updates, more capacity' -- the arena's reward is sparse (spawner kills and phase progression are rare early), which is the regime where a higher entropy bonus and a lower learning rate usually help. NEVER put a documentation key inside a preset block: build_model splats every non-policy/net_arch key straight into the SB3 constructor, so an unexpected key crashes training at model construction."
 }

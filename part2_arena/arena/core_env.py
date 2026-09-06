@@ -112,7 +112,12 @@ class ArenaCoreEnv:
     an ignored `seed` for gym-API symmetry.
     """
 
-    def __init__(self, control_style: int, curriculum_enabled: bool = False):
+    def __init__(
+        self,
+        control_style: int,
+        curriculum_enabled: bool = False,
+        reward_overrides: dict[str, float] | None = None,
+    ):
         self.control_style = int(control_style)
         self.action_enum = action_enum_for_style(self.control_style)
         self.phase_manager = PhaseManager(curriculum_enabled=curriculum_enabled)
@@ -137,6 +142,11 @@ class ArenaCoreEnv:
         # fed back into step_events so compute_reward() can enforce its
         # per-episode cap (see arena/rewards.py APPROACH_REWARD_EPISODE_CAP).
         self._cumulative_approach_reward: float = 0.0
+        # Optional {constant_name: value} replacements handed to
+        # rewards.compute_reward on every step -- training-time only, used
+        # by scripts/train.py --death-penalty for the R_DEATH ablation
+        # (docs/KHANG.md C.3). None for every normal run.
+        self._reward_overrides = reward_overrides
 
     # ------------------------------------------------------------------- API
     def reset(self, *, seed: int | None = None):
@@ -276,7 +286,7 @@ class ArenaCoreEnv:
 
         # 7. observation + reward
         obs = build_observation(st, self.arena_width, self.arena_height)
-        rb = compute_reward(ev)
+        rb = compute_reward(ev, self._reward_overrides)
         self._cumulative_approach_reward += rb.approach_nearest_enemy
         self._last_obs = obs
         self._last_step_events = ev

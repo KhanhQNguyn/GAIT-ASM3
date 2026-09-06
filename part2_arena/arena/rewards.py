@@ -22,8 +22,8 @@ out-earn a single kill) and R_SHOOT_WHILE_NO_TARGET stays disabled at 0.0.
 Member C's alternative recommendation (drop both to 0.0, per
 docs/message.txt) was considered and not adopted; the disagreement is
 recorded in docs/DECISIONS.md rather than left open in this docstring.
-R_DEATH's final value is decided separately, with ablation evidence --
-see docs/DECISIONS.md and rewards_config.py::R_DEATH.
+R_DEATH is decided too -- KEPT at -100.0; see rewards_config.py::R_DEATH's
+docstring for the ablation evidence and rationale.
 -------------------------------------------------------------------------
 """
 
@@ -77,7 +77,9 @@ class RewardBreakdown:
         )
 
 
-def compute_reward(step_events: dict) -> RewardBreakdown:
+def compute_reward(
+    step_events: dict, reward_overrides: dict[str, float] | None = None
+) -> RewardBreakdown:
     """Translate this step's game events into a RewardBreakdown using ONLY
     the constants in rewards_config.py.
 
@@ -135,8 +137,21 @@ def compute_reward(step_events: dict) -> RewardBreakdown:
                                   this step's amount never exceeds
                                   APPROACH_REWARD_EPISODE_CAP
         shoot_while_no_target  = R_SHOOT_WHILE_NO_TARGET * shot_fired_with_no_target
+
+    `reward_overrides` (optional): a {constant_name: value} dict that
+    replaces a reward constant for this call only. Currently only
+    "R_DEATH" is honoured -- it exists so scripts/train.py --death-penalty
+    can run a real R_DEATH ablation (docs/KHANG.md C.3). This module still
+    computes every reward number (Global Invariant #1); the override is a
+    call-time substitution read inside this function, not reward math
+    happening somewhere else. Unknown keys are ignored. Note that
+    `from arena.rewards_config import R_DEATH` binds by value, so
+    monkeypatching rewards_config at runtime does NOT work -- this
+    parameter is the only correct mechanism.
     """
     ev = step_events or {}
+    overrides = reward_overrides or {}
+    r_death = float(overrides.get("R_DEATH", R_DEATH))
     delta = float(ev.get("distance_delta_to_nearest_enemy", 0.0))
     nearest_enemy_distance = float(ev.get("nearest_enemy_distance", float("inf")))
     cumulative_approach_reward = float(ev.get("cumulative_approach_reward", 0.0))
@@ -152,7 +167,7 @@ def compute_reward(step_events: dict) -> RewardBreakdown:
         kill_spawner=R_KILL_SPAWNER * int(ev.get("spawners_killed", 0)),
         phase_progress=R_PHASE_PROGRESS * (1.0 if ev.get("phase_advanced") else 0.0),
         damage_taken=R_DAMAGE_TAKEN_PER_HP * float(ev.get("damage_taken", 0.0)),
-        death=R_DEATH * (1.0 if ev.get("died") else 0.0),
+        death=r_death * (1.0 if ev.get("died") else 0.0),
         approach_nearest_enemy=approach_nearest_enemy,
         shoot_while_no_target=(
             R_SHOOT_WHILE_NO_TARGET * (1.0 if ev.get("shot_fired_with_no_target") else 0.0)
