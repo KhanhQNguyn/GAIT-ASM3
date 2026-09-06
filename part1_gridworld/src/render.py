@@ -37,7 +37,11 @@ COLORS = {
     "hud_accent": (66, 200, 255),
 }
 
-# Smooth interpolation: agent position lerps over this many render calls
+# Smooth interpolation: agent position lerps over this many render calls at
+# the baseline (1.0x) speed. The renderer scales this by 1 / speed_multiplier
+# (see _lerp_frames_for_current_speed) so that the "speed" controls how fast
+# the agent glides tile-to-tile (i.e. RL action pacing), while the render
+# clock itself always ticks at a fixed FPS regardless of speed.
 LERP_FRAMES: int = 20
 
 
@@ -96,6 +100,10 @@ class GridWorldRenderer:
         self._agent_pixel: tuple[float, float] | None = None
         self._target_pixel: tuple[float, float] | None = None
         self._lerp_t: float = 1.0  # 1.0 = fully at target
+        # Number of frames the *current* glide was started with. Fixed for
+        # the duration of one glide so changing speed mid-glide can't cause
+        # the agent to jump partway through (see _lerp_frames_for_current_speed).
+        self._lerp_frames: int = LERP_FRAMES
 
         # HUD data injected by caller (trainer.py calls .set_hud_info())
         self._hud: dict = {
@@ -326,13 +334,22 @@ class GridWorldRenderer:
             self._target_pixel = target_px
             self._lerp_t = 1.0
         elif target_px != self._target_pixel:
-            # New target - start lerp from current
+            # New target - start lerp from current. This only fires once per
+            # actual environment move (env_state["agent_pos"] only changes
+            # once per env.step()), so calling draw() again with the *same*
+            # env_state (as the trainer now does, to animate that single
+            # move over several frames) does not restart the glide or
+            # affect its target -- it just advances _lerp_t below. If the
+            # move was blocked by a rock/edge, target_px equals the tile the
+            # agent was already at, so no glide starts at all: the agent can
+            # never appear to slide through a blocked tile.
             self._target_pixel = target_px
             self._lerp_t = 0.0
+            self._lerp_frames = self._lerp_frames_for_current_speed()
 
         # Advance lerp
         if self._lerp_t < 1.0:
-            self._lerp_t = min(1.0, self._lerp_t + 1.0 / LERP_FRAMES)
+            self._lerp_t = min(1.0, self._lerp_t + 1.0 / self._lerp_frames)
         px = _lerp(self._agent_pixel[0], self._target_pixel[0], self._lerp_t)
         py = _lerp(self._agent_pixel[1], self._target_pixel[1], self._lerp_t)
         self._agent_pixel = (px, py)
@@ -355,7 +372,31 @@ class GridWorldRenderer:
         self._draw_hint(gw)
 
         pygame.display.flip()
-        self._clock.tick(60 * self._speed_multiplier)
+        # Rendering always runs at a fixed 60 FPS. Speed is expressed purely
+        # through how many of those frames one tile-to-tile glide takes
+        # (see _lerp_frames_for_current_speed), not by scaling the clock.
+        self._clock.tick(60)
+
+    def _lerp_frames_for_current_speed(self) -> int:
+        """How many render frames the next agent glide should take.
+
+        Baseline (speed=1.0) is LERP_FRAMES frames. Higher speed shortens
+        the glide (agent reaches its new tile sooner -> effectively a
+        faster action rate); lower speed lengthens it. Always at least 1
+        frame so a glide can never take zero (or a negative) frames.
+        """
+        return max(1, round(LERP_FRAMES / self._speed_multiplier))
+
+    @property
+    def agent_animation_complete(self) -> bool:
+        """True once the agent's pixel position has reached its target tile.
+
+        Callers that render one env.step() per call should keep calling
+        draw() with the same (post-step) state snapshot while this is False,
+        so the agent visibly glides to its new tile across several frames
+        instead of jumping there in a single frame.
+        """
+        return self._lerp_t >= 1.0
 
     def _cached_render(
         self,
