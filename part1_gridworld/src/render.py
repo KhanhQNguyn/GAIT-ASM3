@@ -15,11 +15,13 @@ from collections.abc import Callable
 from typing import Any
 
 import pygame
+import math
+import random
 
 from src import assets
 from src.sprites import load_sprite
 
-TILE_SIZE_PX = 48
+TILE_SIZE_PX = 64
 COLORS = {
     "background": (20, 20, 35),
     "grid_line": (45, 45, 65),
@@ -36,7 +38,7 @@ COLORS = {
 }
 
 # Smooth interpolation: agent position lerps over this many render calls
-LERP_FRAMES: int = 6
+LERP_FRAMES: int = 20
 
 
 def _tile_center(x: int, y: int) -> tuple[int, int]:
@@ -66,12 +68,15 @@ class GridWorldRenderer:
             grid_size: (width, height) in tiles.
             caption: Window title string.
         """
+        self._particles: list[dict] = []
+        self._prev_apples: set[tuple[int, int]] | None = None
+        self._prev_chest_open: bool = False
         self.grid_size = grid_size
         gw, gh = grid_size
         width = gw * TILE_SIZE_PX
         # Extra vertical space for HUD at top and control hint strip at bottom
-        self._hud_height = 56
-        self._hint_height = 24
+        self._hud_height = 72
+        self._hint_height = 30
         height = gh * TILE_SIZE_PX + self._hud_height + self._hint_height
 
         if not pygame.get_init():
@@ -84,8 +89,8 @@ class GridWorldRenderer:
 
         # Font for HUD text (bundled Kenney Pixel, with pygame-default fallback)
         pygame.font.init()
-        self._font_large = assets.load_font(18, bold=True)
-        self._font_small = assets.load_font(14)
+        self._font_large = assets.load_font(24, bold=True)
+        self._font_small = assets.load_font(18)
 
         # Smooth interpolation state
         self._agent_pixel: tuple[float, float] | None = None
@@ -107,8 +112,41 @@ class GridWorldRenderer:
         # Live-run controls (UI-only state, never touches env)
         self._paused: bool = False
         self._speed_multiplier: float = 1.0
-        self._SPEED_STEPS: list[float] = [0.5, 1.0, 2.0, 4.0]
+        self._SPEED_STEPS: list[float] = [0.1, 0.25, 0.5, 1.0, 2.0, 4.0]
         self._restart_requested: bool = False
+
+
+    def _spawn_burst(self, cx: float, cy: float, color: tuple, count: int = 14) -> None:
+        for _ in range(count):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(60, 160)
+            self._particles.append({
+                "x": cx, "y": cy,
+                "vx": math.cos(angle) * speed,
+                "vy": math.sin(angle) * speed,
+                "ttl": random.uniform(0.35, 0.6),
+                "age": 0.0,
+                "color": color,
+            })
+
+    def _update_and_draw_particles(self, dt: float) -> None:
+        alive = []
+        for p in self._particles:
+            p["age"] += dt
+            if p["age"] >= p["ttl"]:
+                continue
+            p["x"] += p["vx"] * dt
+            p["y"] += p["vy"] * dt
+            p["vy"] += 220 * dt
+            alive.append(p)
+        self._particles = alive
+        for p in self._particles:
+            frac_left = 1.0 - (p["age"] / p["ttl"])
+            radius = max(1, int(4 * frac_left))
+            alpha = max(0, int(255 * frac_left))
+            surf = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+            pygame.draw.circle(surf, (*p["color"], alpha), (radius, radius), radius)
+            self._screen.blit(surf, (int(p["x"] - radius), int(p["y"] - radius)))
 
     def set_hud_info(
         self,
@@ -147,6 +185,7 @@ class GridWorldRenderer:
                 key_pos, chest_pos, monsters, has_key, step_count, max_steps.
         """
         self._screen.fill(COLORS["background"])
+        dt = self._clock.get_time() / 1000.0 or (1.0 / 60.0)
 
         gw: int = env_state["grid_w"]
         gh: int = env_state["grid_h"]
@@ -217,7 +256,13 @@ class GridWorldRenderer:
         # --- Apples ---
         for ax, ay in env_state["apples"]:
             _draw_tile(ax, ay, COLORS["apple"], shape="circle", margin=8, sprite_name="apple")
-
+        current_apples = set(tuple(a) for a in env_state["apples"])
+        if self._prev_apples is not None:
+            for (ex, ey) in (self._prev_apples - current_apples):
+                px_c = ex * TILE_SIZE_PX + TILE_SIZE_PX // 2
+                py_c = off_y + ey * TILE_SIZE_PX + TILE_SIZE_PX // 2
+                self._spawn_burst(px_c, py_c, COLORS["apple"])
+        self._prev_apples = current_apples
         # --- Key ---
         if env_state.get("key_pos") is not None:
             kx, ky = env_state["key_pos"]
@@ -228,7 +273,12 @@ class GridWorldRenderer:
             cx, cy = env_state["chest_pos"]
             color = COLORS["chest"] if not env_state.get("chest_open") else (80, 200, 80)
             _draw_tile(cx, cy, color, shape="fill", margin=6, sprite_name="chest")
-
+            chest_open_now = bool(env_state.get("chest_open"))
+            if chest_open_now and not self._prev_chest_open:
+                px_c = cx * TILE_SIZE_PX + TILE_SIZE_PX // 2
+                py_c = off_y + cy * TILE_SIZE_PX + TILE_SIZE_PX // 2
+                self._spawn_burst(px_c, py_c, (80, 200, 80), count=24)
+            self._prev_chest_open = chest_open_now
         # --- Monsters ---
         for mx, my in env_state["monsters"]:
             used_sprite = _draw_tile(
@@ -280,6 +330,7 @@ class GridWorldRenderer:
 
         # --- HUD panel ---
         self._draw_hud(gw)
+        self._update_and_draw_particles(dt)
 
         # --- Control hint strip ---
         self._draw_hint(gw)

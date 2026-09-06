@@ -72,10 +72,10 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
         MenuSelection on confirm, or None if the window is closed.
     """
     pygame.font.init()
-    font_title = assets.load_font(32, bold=True)
-    font_head = assets.load_font(18, bold=True)
-    font_body = assets.load_font(16)
-    font_btn = assets.load_font(18, bold=True)
+    font_title = assets.load_font(42, bold=True)
+    font_head = assets.load_font(22, bold=True)
+    font_body = assets.load_font(20)
+    font_btn = assets.load_font(22, bold=True)
 
     screen_w, screen_h = screen.get_size()
     clock = pygame.time.Clock()
@@ -190,13 +190,17 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
 
         # Watch toggle
         toggle_rect = layout["toggle_rect"]
+        toggle_hovered = toggle_rect.collidepoint(mouse_pos)
         toggle_label = "Watch Only" if watch_only else "Train + Render"
         toggle_bg = _WATCH_ON if watch_only else _WATCH_OFF
         _draw_button(screen, toggle_rect, toggle_label, False, font_btn,
                      bg_norm=toggle_bg, text_col=(240, 240, 240),
-                     hovered=toggle_rect.collidepoint(mouse_pos))
-        pygame.draw.rect(screen, (_ACCENT if watch_only else _ACCENT2),
-                         toggle_rect, width=2, border_radius=8)
+                     hovered=toggle_hovered)
+        if toggle_hovered:
+            pygame.draw.rect(screen, (255, 255, 255), toggle_rect, width=3, border_radius=8)
+        else:
+            pygame.draw.rect(screen, (_ACCENT if watch_only else _ACCENT2),
+                             toggle_rect, width=2, border_radius=8)
 
         mode_hint = font_body.render(
             "Watch Only: loads saved policy  |  Train: trains from scratch",
@@ -209,10 +213,14 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
 
         # Start button
         start_rect = layout["start_rect"]
+        start_hovered = start_rect.collidepoint(mouse_pos)
         _draw_button(screen, start_rect, "START", False, font_btn,
                      bg_norm=(50, 120, 80), text_col=(220, 255, 220),
-                     hovered=start_rect.collidepoint(mouse_pos))
-        pygame.draw.rect(screen, (80, 220, 120), start_rect, width=2, border_radius=8)
+                     hovered=start_hovered)
+        if start_hovered:
+            pygame.draw.rect(screen, (255, 255, 255), start_rect, width=3, border_radius=8)
+        else:
+            pygame.draw.rect(screen, (80, 220, 120), start_rect, width=2, border_radius=8)
 
         # Keyboard hint
         hint = font_body.render(
