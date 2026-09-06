@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import pygame
 
+from src.sprites import load_sprite
+
 TILE_SIZE_PX = 48
 COLORS = {
     "background": (20, 20, 35),
@@ -147,11 +149,26 @@ class GridWorldRenderer:
                 (0, y), (gw * TILE_SIZE_PX, y)
             )
 
-        def _draw_tile(tx: int, ty: int, color: tuple, shape: str = "fill", margin: int = 4) -> None:
+        def _draw_tile(
+            tx: int,
+            ty: int,
+            color: tuple,
+            shape: str = "fill",
+            margin: int = 4,
+            sprite_name: str | None = None,
+        ) -> bool:
+            """Draw one tile. Returns True if a sprite was blitted (so callers
+            can skip shape-specific overlay details like the fire highlight
+            or monster eyes), False if the pygame.draw.* fallback ran."""
             rx = tx * TILE_SIZE_PX + margin
             ry = off_y + ty * TILE_SIZE_PX + margin
             rw = TILE_SIZE_PX - 2 * margin
             rh = TILE_SIZE_PX - 2 * margin
+            if sprite_name is not None:
+                sprite = load_sprite(sprite_name, (rw, rh))
+                if sprite is not None:
+                    self._screen.blit(sprite, (rx, ry))
+                    return True
             if shape == "fill":
                 pygame.draw.rect(self._screen, color, (rx, ry, rw, rh), border_radius=6)
             elif shape == "circle":
@@ -165,40 +182,50 @@ class GridWorldRenderer:
                 r = TILE_SIZE_PX // 2 - margin
                 pts = [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)]
                 pygame.draw.polygon(self._screen, color, pts)
+            return False
 
         # --- Rocks ---
         for rx, ry in env_state["rocks"]:
-            _draw_tile(rx, ry, COLORS["rock"], shape="fill", margin=2)
+            _draw_tile(rx, ry, COLORS["rock"], shape="fill", margin=2, sprite_name="rock")
 
         # --- Fire ---
         for fx, fy in env_state["fire"]:
-            _draw_tile(fx, fy, COLORS["fire"], shape="fill", margin=3)
-            # Inner bright highlight
-            _draw_tile(fx, fy, (255, 160, 80), shape="diamond", margin=12)
+            used_sprite = _draw_tile(
+                fx, fy, COLORS["fire"], shape="fill", margin=3, sprite_name="fire"
+            )
+            if not used_sprite:
+                # Inner bright highlight
+                _draw_tile(fx, fy, (255, 160, 80), shape="diamond", margin=12)
 
         # --- Apples ---
         for ax, ay in env_state["apples"]:
-            _draw_tile(ax, ay, COLORS["apple"], shape="circle", margin=8)
+            _draw_tile(ax, ay, COLORS["apple"], shape="circle", margin=8, sprite_name="apple")
 
         # --- Key ---
         if env_state.get("key_pos") is not None:
             kx, ky = env_state["key_pos"]
-            _draw_tile(kx, ky, COLORS["key"], shape="diamond", margin=8)
+            _draw_tile(kx, ky, COLORS["key"], shape="diamond", margin=8, sprite_name="key")
 
         # --- Chest ---
         if env_state.get("chest_pos") is not None:
             cx, cy = env_state["chest_pos"]
             color = COLORS["chest"] if not env_state.get("chest_open") else (80, 200, 80)
-            _draw_tile(cx, cy, color, shape="fill", margin=6)
+            _draw_tile(cx, cy, color, shape="fill", margin=6, sprite_name="chest")
 
         # --- Monsters ---
         for mx, my in env_state["monsters"]:
-            _draw_tile(mx, my, COLORS["monster"], shape="circle", margin=6)
-            # Eyes
-            eye_y = off_y + my * TILE_SIZE_PX + TILE_SIZE_PX // 3
-            for ex in [mx * TILE_SIZE_PX + TILE_SIZE_PX // 3, mx * TILE_SIZE_PX + 2 * TILE_SIZE_PX // 3]:
-                pygame.draw.circle(self._screen, (255, 255, 255), (ex, eye_y), 3)
-                pygame.draw.circle(self._screen, (0, 0, 0), (ex + 1, eye_y), 1)
+            used_sprite = _draw_tile(
+                mx, my, COLORS["monster"], shape="circle", margin=6, sprite_name="monster"
+            )
+            if not used_sprite:
+                # Eyes
+                eye_y = off_y + my * TILE_SIZE_PX + TILE_SIZE_PX // 3
+                for ex in [
+                    mx * TILE_SIZE_PX + TILE_SIZE_PX // 3,
+                    mx * TILE_SIZE_PX + 2 * TILE_SIZE_PX // 3,
+                ]:
+                    pygame.draw.circle(self._screen, (255, 255, 255), (ex, eye_y), 3)
+                    pygame.draw.circle(self._screen, (0, 0, 0), (ex + 1, eye_y), 1)
 
         # --- Agent (smooth interpolation) ---
         ax, ay = env_state["agent_pos"]
@@ -225,10 +252,14 @@ class GridWorldRenderer:
         self._agent_pixel = (px, py)
 
         r = TILE_SIZE_PX // 2 - 7
-        pygame.draw.circle(self._screen, COLORS["agent"], (int(px), int(py)), r)
-        # Key indicator on agent when carrying
-        if env_state.get("has_key"):
-            pygame.draw.circle(self._screen, COLORS["key"], (int(px), int(py)), r // 2)
+        sprite = load_sprite("agent", (2 * r, 2 * r))
+        if sprite is not None:
+            self._screen.blit(sprite, (int(px - r), int(py - r)))
+        else:
+            pygame.draw.circle(self._screen, COLORS["agent"], (int(px), int(py)), r)
+            # Key indicator on agent when carrying
+            if env_state.get("has_key"):
+                pygame.draw.circle(self._screen, COLORS["key"], (int(px), int(py)), r // 2)
 
         # --- HUD panel ---
         self._draw_hud(gw)

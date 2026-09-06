@@ -17,11 +17,16 @@ effects, the last observation vector, and the last step_events):
 from __future__ import annotations
 
 import math
+import pathlib
 
 import pygame
 
 from arena.entities import ArenaState
 from arena.obs import OBSERVATION_SPEC
+from arena.sprites import load_sprite
+
+_FONT_NAME = "ShareTechMono-Regular.ttf"
+_FONT_PATH = pathlib.Path(__file__).resolve().parent.parent / "assets" / "fonts" / _FONT_NAME
 
 COLORS = {
     "background": (12, 14, 20),
@@ -43,8 +48,41 @@ _SPAWNER_RADIUS = 18.0
 _PROJECTILE_RADIUS = 4.0
 
 
+class TimedBanner:
+    """Generalizes the existing _flashes / _damage_tint_ttl pattern into one
+    reusable timed on-screen message (phase-transition / episode-end)."""
+
+    def __init__(self) -> None:
+        self._text: str | None = None
+        self._ttl: int = 0
+        self._duration: int = 1
+
+    def trigger(self, text: str, duration_frames: int) -> None:
+        self._text = text
+        self._ttl = duration_frames
+        self._duration = duration_frames
+
+    @property
+    def is_active(self) -> bool:
+        return self._ttl > 0
+
+    def tick(self) -> None:
+        if self._ttl > 0:
+            self._ttl -= 1
+
+    def draw(self, screen, font, width: int, height: int) -> None:
+        if self._ttl <= 0 or font is None or self._text is None:
+            return
+        alpha = int(255 * min(1.0, self._ttl / max(1, self._duration * 0.3)))
+        surf = font.render(self._text, True, (255, 255, 255))
+        surf.set_alpha(alpha)
+        screen.blit(surf, (width // 2 - surf.get_width() // 2, height // 3))
+
+
 class ArenaRenderer:
     """Owns the pygame window and draws one ArenaState frame at a time."""
+
+    _SPEED_STEPS = [0.5, 1.0, 2.0, 4.0]
 
     def __init__(self, width: int, height: int, caption: str = "Arena"):
         self.width = int(width)
@@ -58,12 +96,32 @@ class ArenaRenderer:
         self.screen = pygame.display.set_mode((self.width, self.height))
         pygame.display.set_caption(caption)
         self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("consolas", 15) if pygame.font.get_init() else None
+        if pygame.font.get_init():
+            try:
+                self.font = pygame.font.Font(str(_FONT_PATH), 15)
+            except (FileNotFoundError, pygame.error):
+                # Bundled .ttf missing/corrupt -- fall back to pygame's
+                # built-in default font rather than an OS-dependent one.
+                self.font = pygame.font.Font(None, 15)
+        else:
+            self.font = None
 
         self.show_debug = False           # toggled with the 'D' key in handle_events()
         self._prev_player_health: float | None = None
         self._damage_tint_ttl = 0         # frames of red edge-tint remaining
         self._flashes: list[list] = []    # [[x, y, ttl], ...] expanding kill rings
+
+        # Eval-only UX state (pause/speed/restart/skip) -- lives here, never
+        # on ArenaCoreEnv, so the spec-compliant core stays pure.
+        self._paused: bool = False
+        self._speed_multiplier: float = 1.0
+        self._restart_requested: bool = False
+        self._skip_requested: bool = False
+
+        # Phase-transition / episode-end banners.
+        self._phase_banner = TimedBanner()
+        self._episode_banner = TimedBanner()
+        self._prev_phase: int | None = None
 
     # ------------------------------------------------------------------ draw
     def draw(self, state: ArenaState, extra: dict | None = None) -> None:
@@ -76,25 +134,39 @@ class ArenaRenderer:
         for sp in state.spawners:
             if not sp.active:
                 continue
-            self._draw_square(sp.x, sp.y, _SPAWNER_RADIUS, COLORS["spawner"])
+            self._draw_square(sp.x, sp.y, _SPAWNER_RADIUS, COLORS["spawner"], sprite_name="spawner")
             self._draw_health_bar(sp.x, sp.y - _SPAWNER_RADIUS - 8, sp.health, sp.max_health)
 
         for en in state.enemies:
-            pygame.draw.circle(
-                self.screen, COLORS["enemy"], (int(en.x), int(en.y)), int(_ENEMY_RADIUS)
-            )
+            sprite = load_sprite("enemy", (int(2 * _ENEMY_RADIUS), int(2 * _ENEMY_RADIUS)))
+            if sprite is not None:
+                self.screen.blit(sprite, (int(en.x - _ENEMY_RADIUS), int(en.y - _ENEMY_RADIUS)))
+            else:
+                pygame.draw.circle(
+                    self.screen, COLORS["enemy"], (int(en.x), int(en.y)), int(_ENEMY_RADIUS)
+                )
             self._draw_health_bar(en.x, en.y - _ENEMY_RADIUS - 7, en.health, en.max_health)
 
         for pr in state.projectiles:
             key = "projectile_enemy" if pr.owner == "enemy" else "projectile_player"
-            pygame.draw.circle(
-                self.screen, COLORS[key], (int(pr.x), int(pr.y)), int(_PROJECTILE_RADIUS)
-            )
+            sprite = load_sprite(key, (int(2 * _PROJECTILE_RADIUS), int(2 * _PROJECTILE_RADIUS)))
+            if sprite is not None:
+                self.screen.blit(
+                    sprite, (int(pr.x - _PROJECTILE_RADIUS), int(pr.y - _PROJECTILE_RADIUS))
+                )
+            else:
+                pygame.draw.circle(
+                    self.screen, COLORS[key], (int(pr.x), int(pr.y)), int(_PROJECTILE_RADIUS)
+                )
 
         self._draw_player(state)
         self._draw_flashes()
         self._draw_damage_tint()
         self._draw_hud(state)
+        self._phase_banner.tick()
+        self._phase_banner.draw(self.screen, self.font, self.width, self.height)
+        self._episode_banner.tick()
+        self._episode_banner.draw(self.screen, self.font, self.width, self.height)
         if self.show_debug:
             self._draw_debug(extra)
 
@@ -113,6 +185,10 @@ class ArenaRenderer:
         if self._prev_player_health is not None and h < self._prev_player_health - 1e-9:
             self._damage_tint_ttl = max(self._damage_tint_ttl, 8)
         self._prev_player_health = h
+
+        if self._prev_phase is not None and state.phase > self._prev_phase:
+            self._phase_banner.trigger(f"PHASE {state.phase}", duration_frames=120)
+        self._prev_phase = state.phase
 
     def _draw_flashes(self) -> None:
         for f in self._flashes:
@@ -136,7 +212,10 @@ class ArenaRenderer:
     # ---------------------------------------------------------------- pieces
     def _draw_player(self, state: ArenaState) -> None:
         p = state.player
-        if state.control_style == 1:
+        sprite = load_sprite("player", (int(2 * _PLAYER_RADIUS), int(2 * _PLAYER_RADIUS)))
+        if sprite is not None:
+            self.screen.blit(sprite, (int(p.x - _PLAYER_RADIUS), int(p.y - _PLAYER_RADIUS)))
+        elif state.control_style == 1:
             # triangle pointing along orientation (inertial ship)
             pts = []
             for ang_off, dist in ((0.0, 1.4), (2.5, 0.9), (-2.5, 0.9)):
@@ -154,7 +233,14 @@ class ArenaRenderer:
             pygame.draw.line(self.screen, COLORS["player"], (p.x, p.y), (tx, ty), 3)
         self._draw_health_bar(p.x, p.y - _PLAYER_RADIUS - 10, p.health, p.max_health, w=42)
 
-    def _draw_square(self, x: float, y: float, r: float, color) -> None:
+    def _draw_square(
+        self, x: float, y: float, r: float, color, sprite_name: str | None = None
+    ) -> None:
+        if sprite_name is not None:
+            sprite = load_sprite(sprite_name, (int(2 * r), int(2 * r)))
+            if sprite is not None:
+                self.screen.blit(sprite, (int(x - r), int(y - r)))
+                return
         rect = pygame.Rect(int(x - r), int(y - r), int(2 * r), int(2 * r))
         pygame.draw.rect(self.screen, color, rect)
 
@@ -206,7 +292,9 @@ class ArenaRenderer:
     def handle_events(self) -> bool:
         """Pump the pygame event queue; return False if the window was
         closed (so the eval loop can stop), True otherwise. 'D' toggles the
-        debug overlay.
+        debug overlay; Space pauses; '[' / ']' step playback speed down/up;
+        'R' requests an episode restart; 'N' requests skipping to the next
+        episode (see the consume_*_request() methods below).
         """
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -216,7 +304,45 @@ class ArenaRenderer:
                     return False
                 if event.key == pygame.K_d:
                     self.show_debug = not self.show_debug
+                elif event.key == pygame.K_SPACE:
+                    self._paused = not self._paused
+                elif event.key == pygame.K_LEFTBRACKET:
+                    i = self._SPEED_STEPS.index(self._speed_multiplier)
+                    self._speed_multiplier = self._SPEED_STEPS[max(0, i - 1)]
+                elif event.key == pygame.K_RIGHTBRACKET:
+                    i = self._SPEED_STEPS.index(self._speed_multiplier)
+                    self._speed_multiplier = self._SPEED_STEPS[
+                        min(len(self._SPEED_STEPS) - 1, i + 1)
+                    ]
+                elif event.key == pygame.K_r:
+                    self._restart_requested = True
+                elif event.key == pygame.K_n:
+                    self._skip_requested = True
         return True
+
+    # ------------------------------------------------------ eval-only UX
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
+
+    @property
+    def speed_multiplier(self) -> float:
+        return self._speed_multiplier
+
+    def consume_restart_request(self) -> bool:
+        v, self._restart_requested = self._restart_requested, False
+        return v
+
+    def consume_skip_request(self) -> bool:
+        v, self._skip_requested = self._skip_requested, False
+        return v
+
+    def show_episode_end_banner(self, summary: dict) -> None:
+        text = (
+            f"Episode end — return {summary['return']:.1f}  steps {summary['steps']}  "
+            f"phase {summary['phase']}  ({summary['outcome']})"
+        )
+        self._episode_banner.trigger(text, duration_frames=120)
 
     def close(self) -> None:
         pygame.quit()
