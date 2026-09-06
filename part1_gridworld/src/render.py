@@ -11,7 +11,12 @@ Creativity additions (Section 4 of MEMBER_A_GRIDWORLD_CORE.md):
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import pygame
+
+from src import assets
 
 TILE_SIZE_PX = 48
 COLORS = {
@@ -50,7 +55,7 @@ class GridWorldRenderer:
     time. Does not own the environment or the training loop.
 
     Takes plain-dict state snapshots (from GridWorldEnv.get_state_snapshot())
-    — never the GridWorldEnv object itself, preserving the decoupling.
+    - never the GridWorldEnv object itself, preserving the decoupling.
     """
 
     def __init__(self, grid_size: tuple[int, int], caption: str = "Gridworld RL"):
@@ -63,9 +68,10 @@ class GridWorldRenderer:
         self.grid_size = grid_size
         gw, gh = grid_size
         width = gw * TILE_SIZE_PX
-        # Extra vertical space for HUD at top
+        # Extra vertical space for HUD at top and control hint strip at bottom
         self._hud_height = 56
-        height = gh * TILE_SIZE_PX + self._hud_height
+        self._hint_height = 24
+        height = gh * TILE_SIZE_PX + self._hud_height + self._hint_height
 
         if not pygame.get_init():
             pygame.init()
@@ -75,14 +81,10 @@ class GridWorldRenderer:
 
         self._clock = pygame.time.Clock()
 
-        # Font for HUD text
+        # Font for HUD text (bundled Kenney Pixel, with pygame-default fallback)
         pygame.font.init()
-        try:
-            self._font_large = pygame.font.SysFont("Segoe UI", 18, bold=True)
-            self._font_small = pygame.font.SysFont("Segoe UI", 14)
-        except Exception:
-            self._font_large = pygame.font.Font(None, 22)
-            self._font_small = pygame.font.Font(None, 18)
+        self._font_large = assets.load_font(18, bold=True)
+        self._font_small = assets.load_font(14)
 
         # Smooth interpolation state
         self._agent_pixel: tuple[float, float] | None = None
@@ -97,12 +99,24 @@ class GridWorldRenderer:
             "step": 0,
         }
 
+        # Cache of rendered HUD text surfaces, keyed by label; re-rendered
+        # only when the underlying value changes (see _cached_render).
+        self._hud_cache: dict = {}
+
+        # Live-run controls (UI-only state, never touches env)
+        self._paused: bool = False
+        self._speed_multiplier: float = 1.0
+        self._SPEED_STEPS: list[float] = [0.5, 1.0, 2.0, 4.0]
+        self._restart_requested: bool = False
+
     def set_hud_info(
         self,
         episode: int = 0,
         epsilon: float = 1.0,
         return_: float = 0.0,
         step: int = 0,
+        paused: bool = False,
+        speed: float = 1.0,
     ) -> None:
         """Update HUD data shown during training. Called by trainer.py each step.
 
@@ -111,12 +125,16 @@ class GridWorldRenderer:
             epsilon: Current exploration rate.
             return_: Running episode return so far.
             step: Current step within episode.
+            paused: Whether the run is currently paused.
+            speed: Current speed multiplier.
         """
         self._hud = {
             "episode": episode,
             "epsilon": epsilon,
             "return_": return_,
             "step": step,
+            "paused": paused,
+            "speed": speed,
         }
 
     def draw(self, env_state: dict) -> None:
@@ -208,12 +226,12 @@ class GridWorldRenderer:
         )
 
         if self._agent_pixel is None:
-            # First frame — snap to position
+            # First frame - snap to position
             self._agent_pixel = target_px
             self._target_pixel = target_px
             self._lerp_t = 1.0
         elif target_px != self._target_pixel:
-            # New target — start lerp from current
+            # New target - start lerp from current
             self._target_pixel = target_px
             self._lerp_t = 0.0
 
@@ -233,13 +251,34 @@ class GridWorldRenderer:
         # --- HUD panel ---
         self._draw_hud(gw)
 
+        # --- Control hint strip ---
+        self._draw_hint(gw)
+
         pygame.display.flip()
-        self._clock.tick(60)
+        self._clock.tick(60 * self._speed_multiplier)
+
+    def _cached_render(
+        self,
+        key: str,
+        value: Any,
+        font: pygame.font.Font,
+        color: tuple,
+        fmt: Callable[[Any], str] = str,
+    ) -> pygame.Surface:
+        """Render `value` to a surface, caching by (key, formatted text) so
+        unchanged HUD values are not re-rendered every frame.
+        """
+        text = fmt(value)
+        cached = self._hud_cache.get(key)
+        if cached is not None and cached[0] == text:
+            return cached[1]
+        surf = font.render(text, True, color)
+        self._hud_cache[key] = (text, surf)
+        return surf
 
     def _draw_hud(self, grid_w: int) -> None:
         """Draw the top HUD bar with episode/epsilon/return info."""
         panel_w = grid_w * TILE_SIZE_PX
-        # Semi-transparent dark bar
         hud_surf = pygame.Surface((panel_w, self._hud_height), pygame.SRCALPHA)
         hud_surf.fill((10, 10, 20, 210))
         self._screen.blit(hud_surf, (0, 0))
@@ -249,26 +288,61 @@ class GridWorldRenderer:
         ret = self._hud["return_"]
         stp = self._hud["step"]
 
-        # Left section: Episode
-        ep_label = self._font_small.render("EPISODE", True, (130, 130, 160))
-        ep_val = self._font_large.render(str(ep), True, COLORS["hud_accent"])
+        # Static labels, rendered once and cached
+        ep_label = self._cached_render("ep_label", "EPISODE", self._font_small, (130, 130, 160))
+        eps_label = self._cached_render(
+            "eps_label", "eps (explore)", self._font_small, (130, 130, 160)
+        )
+        ret_label = self._cached_render(
+            "ret_label", "Return / Step", self._font_small, (130, 130, 160)
+        )
+
+        # Value surfaces, re-rendered only when the value changes
+        ep_val = self._cached_render("ep_val", ep, self._font_large, COLORS["hud_accent"])
+        eps_val = self._cached_render(
+            "eps_val", eps, self._font_large, (255, 200, 80), fmt=lambda v: f"{v:.3f}"
+        )
+        ret_val = self._cached_render(
+            "ret_val",
+            (ret, stp),
+            self._font_large,
+            (100, 230, 120),
+            fmt=lambda v: f"{v[0]:.1f} / {v[1]}",
+        )
+
         self._screen.blit(ep_label, (8, 6))
         self._screen.blit(ep_val, (8, 22))
-
-        # Centre: Epsilon
-        eps_label = self._font_small.render("ε (explore)", True, (130, 130, 160))
-        eps_val = self._font_large.render(f"{eps:.3f}", True, (255, 200, 80))
         self._screen.blit(eps_label, (140, 6))
         self._screen.blit(eps_val, (140, 22))
-
-        # Right: Return & step
-        ret_label = self._font_small.render("Return / Step", True, (130, 130, 160))
-        ret_val = self._font_large.render(f"{ret:.1f} / {stp}", True, (100, 230, 120))
         self._screen.blit(ret_label, (280, 6))
         self._screen.blit(ret_val, (280, 22))
 
+        # Paused / speed status, right-aligned to the HUD panel edge
+        speed_text = f"x{self._hud.get('speed', 1.0):.1f}"
+        is_paused = bool(self._hud.get("paused"))
+        status_text = f"PAUSED  {speed_text}" if is_paused else speed_text
+        status_color = (255, 120, 120) if is_paused else (200, 200, 220)
+        status = self._cached_render(
+            "status", status_text, self._font_small, status_color
+        )
+        self._screen.blit(status, (panel_w - status.get_width() - 8, 22))
+
+    def _draw_hint(self, grid_w: int) -> None:
+        """Draw the control-hint strip below the grid."""
+        panel_w = grid_w * TILE_SIZE_PX
+        gh = self.grid_size[1]
+        hint_y = self._hud_height + gh * TILE_SIZE_PX
+        # Strip background
+        hint_surf = pygame.Surface((panel_w, self._hint_height), pygame.SRCALPHA)
+        hint_surf.fill((10, 10, 20, 200))
+        self._screen.blit(hint_surf, (0, hint_y))
+
+        hint_text = "Space: pause  |  [ ] : speed  |  R: restart  |  Esc: quit"
+        hint = self._cached_render("hint", hint_text, self._font_small, (150, 150, 180))
+        self._screen.blit(hint, (8, hint_y + 5))
+
     def handle_events(self) -> bool:
-        """Pump the pygame event queue.
+        """Pump the pygame event queue and handle live-run control keys.
 
         Returns:
             False if the window was closed (caller should stop the loop),
@@ -277,9 +351,34 @@ class GridWorldRenderer:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                return False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return False
+                elif event.key == pygame.K_SPACE:
+                    self._paused = not self._paused
+                elif event.key == pygame.K_LEFTBRACKET:
+                    i = self._SPEED_STEPS.index(self._speed_multiplier)
+                    self._speed_multiplier = self._SPEED_STEPS[max(0, i - 1)]
+                elif event.key == pygame.K_RIGHTBRACKET:
+                    i = self._SPEED_STEPS.index(self._speed_multiplier)
+                    self._speed_multiplier = self._SPEED_STEPS[
+                        min(len(self._SPEED_STEPS) - 1, i + 1)
+                    ]
+                elif event.key == pygame.K_r:
+                    self._restart_requested = True
         return True
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
+
+    def consume_restart_request(self) -> bool:
+        """Return True once if a restart was requested since the last call,
+        and clear the request."""
+        if self._restart_requested:
+            self._restart_requested = False
+            return True
+        return False
 
     def close(self) -> None:
         """Tear down the pygame window."""
