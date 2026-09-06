@@ -37,10 +37,15 @@ class ArenaGymEnv(gym.Env):
         control_style: int,
         curriculum_enabled: bool = False,
         render_mode: str | None = None,
+        reward_overrides: dict[str, float] | None = None,
     ):
         super().__init__()
+        # reward_overrides is passed straight through, uninterpreted -- this
+        # layer stays protocol translation only (see the module docstring).
         self.core_env = ArenaCoreEnv(
-            control_style=control_style, curriculum_enabled=curriculum_enabled
+            control_style=control_style,
+            curriculum_enabled=curriculum_enabled,
+            reward_overrides=reward_overrides,
         )
         self.render_mode = render_mode
         self._renderer = None  # created lazily in render() if render_mode == "human"

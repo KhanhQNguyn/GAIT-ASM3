@@ -10,6 +10,11 @@ creativity hooks:
 Usage:
     python scripts/train.py --style 1 --algo ppo --timesteps 300000
     python scripts/train.py --style 2 --algo dqn --timesteps 300000 --curriculum on
+    python scripts/train.py --style 1 --algo ppo --timesteps 100000 --death-penalty -30
+
+  (ablation) --death-penalty: override R_DEATH for this run only, so the
+      report can show a real number behind the death-penalty choice rather
+      than an opinion (docs/KHANG.md C.3).
 """
 
 from __future__ import annotations
@@ -53,6 +58,17 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="tuned_v1",
         help="hyperparameter preset name in config/hyperparams.json (e.g. baseline, tuned_v1)",
+    )
+    parser.add_argument(
+        "--death-penalty",
+        type=float,
+        default=None,
+        help=(
+            "override R_DEATH for this run (ablation only); defaults to "
+            "arena/rewards_config.py's value if omitted. Ablation runs are "
+            "named 'ablation_style<N>_...' so they can never collide with a "
+            "main run's model file or TensorBoard directory."
+        ),
     )
     return parser.parse_args()
 
@@ -103,13 +119,40 @@ def build_model(
     )
 
 
+def run_name(
+    style: int,
+    algo: str,
+    curriculum: str,
+    preset: str = "tuned_v1",
+    death_penalty: float | None = None,
+) -> str:
+    """Single source of truth for a run's identity, used for BOTH the model
+    filename and the TensorBoard run name so the two can never drift apart.
+
+    Ablation runs (--death-penalty set) get an "ablation_" PREFIX rather
+    than only a suffix. A suffix alone would make the ablation's directory
+    name a prefix-extension of the main run's, and
+    scripts/plot_reward_decomposition.py::find_log_dir locates runs with a
+    prefix glob -- it would then happily read an ablation run's scalars
+    while reporting the main run's numbers.
+    """
+    curriculum_suffix = "_curriculum" if curriculum == "on" else ""
+    if death_penalty is None:
+        return f"style{style}_{algo}_{preset}{curriculum_suffix}"
+    return f"ablation_style{style}_{algo}_{preset}{curriculum_suffix}_death{int(death_penalty)}"
+
+
 def model_save_path(
-    style: int, algo: str, curriculum: str, preset: str = "tuned_v1"
+    style: int,
+    algo: str,
+    curriculum: str,
+    preset: str = "tuned_v1",
+    death_penalty: float | None = None,
 ) -> pathlib.Path:
-    suffix = "_curriculum" if curriculum == "on" else ""
     # Preset is part of the filename so a hyperparameter sweep does not
-    # overwrite its own earlier runs.
-    return MODELS_DIR / f"style{style}_{algo}_{preset}{suffix}"
+    # overwrite its own earlier runs; death_penalty likewise keeps an
+    # ablation run from clobbering the real one.
+    return MODELS_DIR / run_name(style, algo, curriculum, preset, death_penalty)
 
 
 def main() -> None:
@@ -122,14 +165,33 @@ def main() -> None:
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
     curriculum_enabled = args.curriculum == "on"
-    env = Monitor(ArenaGymEnv(control_style=args.style, curriculum_enabled=curriculum_enabled))
+    # Both the training env and EvalCallback's eval env must use the SAME
+    # reward function -- if only one is overridden, "best model by eval
+    # reward" is selected against a different objective than the one being
+    # trained, and the saved best checkpoint is meaningless.
+    reward_overrides = (
+        {"R_DEATH": args.death_penalty} if args.death_penalty is not None else None
+    )
+    env = Monitor(
+        ArenaGymEnv(
+            control_style=args.style,
+            curriculum_enabled=curriculum_enabled,
+            reward_overrides=reward_overrides,
+        )
+    )
     model = build_model(
         args.algo, env, tensorboard_log=str(LOGS_DIR), preset=args.config, seed=args.seed
     )
 
-    save_path = model_save_path(args.style, args.algo, args.curriculum, args.config)
+    save_path = model_save_path(
+        args.style, args.algo, args.curriculum, args.config, args.death_penalty
+    )
     eval_env = Monitor(
-        ArenaGymEnv(control_style=args.style, curriculum_enabled=curriculum_enabled)
+        ArenaGymEnv(
+            control_style=args.style,
+            curriculum_enabled=curriculum_enabled,
+            reward_overrides=reward_overrides,
+        )
     )
     eval_callback = EvalCallback(
         eval_env,
@@ -141,12 +203,16 @@ def main() -> None:
     )
     callback = CallbackList([RewardTermLoggingCallback(), eval_callback])
 
-    # tb_log_name encodes style/algo/preset/curriculum so each run gets its
-    # own discoverable TensorBoard subfolder (SB3 auto-appends "_1", "_2",
-    # ... on repeat runs) -- scripts/compare_ppo_dqn.py and
-    # scripts/plot_reward_decomposition.py locate the right run by this name.
-    curriculum_suffix = "_curriculum" if curriculum_enabled else ""
-    tb_log_name = f"style{args.style}_{args.algo}_{args.config}{curriculum_suffix}"
+    # tb_log_name encodes style/algo/preset/curriculum (and the ablation
+    # marker) so each run gets its own discoverable TensorBoard subfolder
+    # (SB3 auto-appends "_1", "_2", ... on repeat runs) --
+    # scripts/compare_ppo_dqn.py, scripts/plot_reward_decomposition.py and
+    # scripts/plot_death_penalty_ablation.py locate the right run by this
+    # name, so it MUST stay in sync with model_save_path (both come from
+    # run_name()).
+    tb_log_name = run_name(
+        args.style, args.algo, args.curriculum, args.config, args.death_penalty
+    )
     model.learn(total_timesteps=args.timesteps, callback=callback, tb_log_name=tb_log_name)
     model.save(save_path)
 

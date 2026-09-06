@@ -30,9 +30,32 @@ R_DAMAGE_TAKEN_PER_HP: float = -0.5
 per-hit penalty so a single graze and a heavy hit are distinguished."""
 
 R_DEATH: float = -100.0
-"""Strong negative reward on death, on top of R_DAMAGE_TAKEN_PER_HP for the
-killing blow -- must dominate any single episode's positive rewards so the
-agent reliably prioritizes survival."""
+"""DECISION: KEPT at -100.0. Strong negative reward on death, on top of
+R_DAMAGE_TAKEN_PER_HP for the killing blow -- must dominate any single
+episode's positive rewards so the agent reliably prioritizes survival.
+
+Ablation (Task 7): two 100k-timestep style-1 PPO runs
+(`--config tuned_v1 --curriculum on --seed 0`), identical except
+`--death-penalty -100` vs `--death-penalty -30` (via
+`scripts/train.py --death-penalty` and
+`scripts/plot_death_penalty_ablation.py`). Honest finding: in BOTH runs
+`rollout/ep_len_mean` stayed pinned at 1200 (the episode-length cap) at
+every logged checkpoint from ~4k steps onward -- the agent never died in
+either run, so R_DEATH never actually fired and the two runs optimized
+what was, in practice, an identical reward function (every panel matches,
+including `ep_rew_mean` to two decimal places). The ablation is therefore
+genuinely inconclusive on which magnitude trains better at this budget;
+that is reported honestly here rather than papered over with an invented
+preference. See report/figures/death_penalty_ablation_style1.png for the
+evidence.
+
+Kept at -100.0 rather than weakened to -30 because (a) the ablation found
+no behavioral difference to justify a change, and (b)
+tests/test_reward_terms.py requires R_DEATH < -45.0
+(test_death_penalty_dominates_a_full_episode_of_positive_reward: 5 enemy
+kills x R_KILL_ENEMY=5.0 + 1 spawner kill x R_KILL_SPAWNER=20.0 = +45.0
+must still net negative after death) -- -30 would fail that test outright
+regardless of the ablation's outcome."""
 
 # --- Optional shaping terms (<= 2, must be justified) ---
 
