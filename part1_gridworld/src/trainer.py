@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import pathlib
 
+import numpy as np
+
 from src.algorithms import (
     QTable,
     epsilon_greedy,
@@ -270,3 +272,53 @@ def evaluate_policy(env: GridWorldEnv, q_table: QTable, render: bool = True) -> 
             renderer.close()
 
     return {"steps": steps, "total_return": total_return, "died": died}
+
+
+def evaluate_policy_batch(
+    env: GridWorldEnv, q_table: QTable, n_episodes: int = 50, seed: int = 0
+) -> dict:
+    """Run N greedy (epsilon=0) episodes headlessly (no render) and return
+    aggregate statistics. A single evaluate_policy() rollout only answers
+    "is this obviously not random" (the video-demo use case) -- any rubric
+    claim about success rate, average steps, or consistency needs a
+    batched evaluator instead (docs/RULES.md R-EVAL-1).
+
+    `key_before_chest_fraction` is a sanity check, not independent proof
+    the key->chest dependency was *learned*: env.py only allows opening a
+    chest while `_has_key` is True, so every successful ("win") episode on
+    a chest level necessarily has key-pickup before chest-open by
+    construction. The number that actually speaks to "was this learned
+    rather than stumbled into" is `success_rate` itself -- a high rate
+    under a purely greedy, no-exploration policy is strong evidence the
+    multi-step dependency was learned, since a policy that hadn't learned
+    it would rarely reach the chest by chance alone.
+    """
+    rng = set_seed(seed)
+    successes, steps_list, key_before_chest = 0, [], []
+    for _ in range(n_episodes):
+        state = env.reset()
+        done = False
+        steps = 0
+        had_key_at_some_step = False
+        result = None
+        while not done:
+            action = epsilon_greedy(q_table[state], 0.0, rng)
+            result = env.step(Action(action))
+            snap = env.get_state_snapshot()
+            if snap["has_key"]:
+                had_key_at_some_step = True
+            state, done = result.state, result.done
+            steps += 1
+        won = result.info.get("cause") == "win"
+        successes += int(won)
+        steps_list.append(steps)
+        if won and env.level.get("chest") is not None:
+            key_before_chest.append(had_key_at_some_step)  # will always be True
+    return {
+        "success_rate": successes / n_episodes,
+        "mean_steps": float(np.mean(steps_list)),
+        "std_steps": float(np.std(steps_list)),
+        "key_before_chest_fraction": (
+            sum(key_before_chest) / len(key_before_chest) if key_before_chest else None
+        ),
+    }

@@ -97,7 +97,10 @@ checkpoint_*
 # General
 .DS_Store
 Thumbs.db
+
 *.xml
+*.md
 !README.md
 !CLAUDE.md
 !report/report_template.md
+!report/figures/*.md

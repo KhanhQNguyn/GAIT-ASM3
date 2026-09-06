@@ -69,18 +69,27 @@ def save_qtable(q_table: "QTable", path: str | pathlib.Path) -> None:
     """Serialise a trained QTable to `path` as JSON.
 
     Format: {"n_actions": int, "entries": [[state_repr, [q0, q1, ...]], ...]}
-    where state_repr is state's JSON-safe encoding. Only entries that were
-    actually visited (i.e. present in the underlying defaultdict) are
-    written -- unvisited states still default to [0.0]*n_actions on load.
+    where state_repr is state's JSON-safe encoding. Entries whose Q-values
+    are still all exactly 0.0 are skipped -- QTable is a defaultdict, so
+    `q_table[state]` auto-creates an entry on any *read* (e.g. every
+    bootstrap lookup in q_learning_update/sarsa_update), not just an
+    update; on a level with a large (agent, apples, monsters) state space
+    this can make the vast majority of "visited" entries pure zero-padding
+    indistinguishable from an unvisited state, which already defaults to
+    [0.0]*n_actions on load -- skipping them is a pure storage-size
+    optimization with no effect on any load_qtable() consumer. Written
+    compactly (no indent) for the same reason.
     """
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     entries = [
-        [_state_to_jsonable(state), list(values)] for state, values in q_table._table.items()
+        [_state_to_jsonable(state), list(values)]
+        for state, values in q_table._table.items()
+        if any(v != 0.0 for v in values)
     ]
     data = {"n_actions": q_table.n_actions, "entries": entries}
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+        json.dump(data, f, separators=(",", ":"))
 
 
 def load_qtable(path: str | pathlib.Path, n_actions: int) -> "QTable":
