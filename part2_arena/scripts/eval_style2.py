@@ -60,30 +60,55 @@ def main() -> None:
     env = ArenaGymEnv(control_style=CONTROL_STYLE, render_mode="human")
     clock = pygame.time.Clock()
 
-    for episode in range(1, args.episodes + 1):
+    # Space pauses, '[' / ']' change playback speed, R restarts the current
+    # episode, N skips to the next one (see ArenaRenderer.handle_events()).
+    episode = 1
+    while episode <= args.episodes:
         obs, _info = env.reset()
-        env.render()
-        clock.tick(args.fps)
-        total_reward = 0.0
-        steps = 0
-        terminated = False
-        truncated = False
+        if not env.render():
+            break
+        clock.tick(args.fps * env.speed_multiplier)
+        total_reward, steps = 0.0, 0
+        terminated = truncated = False
 
         while not (terminated or truncated):
+            while env.is_paused:
+                if not env.render():
+                    terminated = truncated = True
+                    break
+                clock.tick(args.fps * env.speed_multiplier)
+            if terminated or truncated:
+                break
+            if env.consume_restart_request():
+                obs, _info = env.reset()
+                total_reward, steps = 0.0, 0
+                continue
+            if env.consume_skip_request():
+                break
+
             action, _state = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
-            env.render()
-            clock.tick(args.fps)
+            if not env.render():
+                terminated = truncated = True
+            clock.tick(args.fps * env.speed_multiplier)
             total_reward += reward
             steps += 1
 
         outcome = "died" if terminated else "survived to step limit"
         final_phase = env.core_env.state.phase if env.core_env.state is not None else None
+        env.show_episode_end_banner(
+            {"return": total_reward, "steps": steps, "phase": final_phase, "outcome": outcome}
+        )
+        for _ in range(int(args.fps * 2)):  # hold the banner ~2s before the next episode
+            if not env.render():
+                break
+            clock.tick(args.fps)
         print(
             f"[episode {episode}/{args.episodes}] steps={steps} "
             f"return={total_reward:.2f} outcome={outcome} "
             f"final_phase={final_phase}"
         )
+        episode += 1
 
     env.close()
 

@@ -10,7 +10,8 @@ fully implemented** — `part2_arena/` (arena core, training/eval scripts, confi
 scripts) all have real bodies, and `pytest part1_gridworld/tests part2_arena/tests` passes 100%
 with zero skips. Docstrings on already-implemented functions occasionally still say "TODO:
 implement" as a leftover from the original skeleton pass — trust the code and the tests over a
-stale docstring comment when the two disagree.
+stale docstring comment when the two disagree. The root `README.md` is similarly stale (still says
+"Skeleton only... Nothing is implemented yet") — trust this file over it.
 
 Two things worth knowing before extending this further:
 - `part1_gridworld/logs/` (per-run CSV episode logs) and `part1_gridworld/models/` (saved
@@ -165,6 +166,12 @@ Strict separation so the core is headless and unit-testable:
   `render.py` / `menu.py` are the Pygame layer; they read env state, never mutate it. `menu.py`
   existing (in-window level/algorithm selection) is itself part of the "interactive, visually
   rendered" rubric requirement.
+- **`src/sprites.py`** — optional PNG sprite loader (`load_sprite(name, size)`), reading from
+  `assets/sprites/<name>.png`. Every `render.py` draw call keeps its original `pygame.draw.*` shape
+  as the fallback when a sprite is missing/invalid (`load_sprite` never raises) — dropping a
+  correctly-named PNG into an empty `assets/sprites/` swaps that one shape with no code change.
+  Deliberately duplicated (not shared) with Part II's `arena/sprites.py` so the two parts stay
+  independently runnable/gradable.
 
 Levels 0–6 map to tasks: 0=Q-learning, 1=SARSA, 2–3=key/chest, 4–5=monsters, 6=intrinsic reward
 (see `config/schema.md` table). `level1` and `level6` carry `_design_note` fields explaining the
@@ -184,7 +191,15 @@ design — **do not merge these**:
 - **`arena/gym_adapter.py`** — `ArenaGymEnv(gym.Env)`, thin protocol translation **only** (no
   game logic). Exists purely because SB3 needs Gymnasium's 5-tuple (`terminated`/`truncated`
   split); derives those from `info["died"]` / `info["truncated"]`. `train.py` and both eval
-  scripts use this layer. `observation_space` is `Box(-1, 1, (OBS_DIM,), float32)`.
+  scripts use this layer. `observation_space` is `Box(-1, 1, (OBS_DIM,), float32)`. `render()`
+  pumps the renderer's event queue and returns a bool (`False` = window closed), matching Part I's
+  `GridWorldRenderer.handle_events()` convention; `is_paused`/`speed_multiplier`/
+  `consume_restart_request()`/`consume_skip_request()`/`show_episode_end_banner()` are eval-only
+  passthroughs to the lazily-created `ArenaRenderer` — they live here, never on `ArenaCoreEnv`, so
+  the spec-compliant core stays pure.
+- **`arena/sprites.py`** — Part II's copy of Part I's `src/sprites.py` sprite loader (same
+  contract: `load_sprite(name, size)`, `assets/sprites/<name>.png`, never raises, callers keep
+  their `pygame.draw.*` fallback). Kept as a separate duplicate file, not a shared import.
 - **`arena/entities.py`** — plain dataclasses (`Player`, `Enemy`, `Spawner`, `Projectile`,
   `ArenaState`). No pygame/gym/SB3. `core_env.py` owns and mutates `ArenaState`;
   `render_pygame.py` only reads it. Enemies deal contact damage only (no enemy fire) — `Projectile`
@@ -226,7 +241,18 @@ design — **do not merge these**:
   dedicated seed-utils module, unlike Part I). Models → `models/`, TensorBoard logs → `logs/`.
 - **`scripts/eval_style1.py` / `eval_style2.py`** — deliberately standalone (no shared
   `--style` flag) because the rubric asks for a separate eval script per control style. Load the
-  saved model, play live with `render_mode="human"`, `deterministic=True`.
+  saved model, play live with `render_mode="human"`, `deterministic=True`. Their render loop
+  checks `env.render()`'s returned bool (window-closed signal), respects `env.is_paused`
+  (Space), reads `env.speed_multiplier` (`[`/`]`) for `clock.tick(fps * mult)`, and honors
+  `env.consume_restart_request()`/`consume_skip_request()` (R/N) — all plumbed through
+  `ArenaGymEnv` from `arena/render_pygame.py::ArenaRenderer.handle_events()`.
+- **`arena/render_pygame.py`** — loads its HUD font from the bundled
+  `assets/fonts/ShareTechMono-Regular.ttf` (OFL-licensed; see `assets/README.md`) instead of
+  `pygame.font.SysFont`, so the HUD/debug overlay renders identically across operating systems.
+  `TimedBanner` generalizes the existing kill-flash/damage-tint timed-effect pattern into one
+  reusable on-screen message, used for the phase-transition banner (triggered in
+  `_ingest_effects()` when `state.phase` increases) and the episode-end banner
+  (`show_episode_end_banner()`, called by the eval scripts before the next `reset()`).
 
 ### Cross-part
 

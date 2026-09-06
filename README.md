@@ -14,7 +14,11 @@ rubric, and `RUBRIC_MAP.md` for how each file here maps to rubric points.
 
 ## Status
 
-Skeleton only. See TODOs in each module. Nothing is implemented yet.
+Both parts are fully implemented. `pytest part1_gridworld/tests part2_arena/tests` passes 100%
+with zero skips. Part I has real trained Q-tables, CSV episode logs, and comparison-script
+figures under `part1_gridworld/`. Part II's `models/`/`logs/` currently only hold short smoke
+runs confirming `train.py -> models/ -> eval_style{1,2}.py` connects end-to-end — the full
+100k-600k-timestep training runs the report/video need are still outstanding.
 
 ## Setup
 
@@ -37,7 +41,7 @@ VIDEO_SCRIPT.md            demo video shot list
 SUBMISSION_CHECKLIST.md     final submission checklist
 ```
 
-## Running (once implemented)
+## Running
 
 Part I:
 ```

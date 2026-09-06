@@ -83,9 +83,12 @@ class ArenaGymEnv(gym.Env):
         truncated = bool(info["truncated"]) and not terminated
         return obs, float(reward), terminated, truncated, info
 
-    def render(self):
-        """Lazily create an ArenaRenderer on first call (only when
-        render_mode == "human"), then delegate to core_env.render().
+    def render(self) -> bool | None:
+        """Lazily create an ArenaRenderer on first call, delegate the draw to
+        core_env.render(), then pump this renderer's event queue and return
+        whether the caller should keep going (False = window was closed,
+        matching Part I's GridWorldRenderer.handle_events() convention).
+        Returns None when render_mode != "human" (no-op, as before).
         """
         if self.render_mode != "human":
             return None
@@ -98,7 +101,26 @@ class ArenaGymEnv(gym.Env):
                 caption=f"Arena - control style {self.core_env.control_style}",
             )
         self.core_env.render(self._renderer)
-        return None
+        return self._renderer.handle_events()
+
+    # New eval-only passthroughs (these live here, never on ArenaCoreEnv).
+    @property
+    def is_paused(self) -> bool:
+        return self._renderer.is_paused if self._renderer is not None else False
+
+    @property
+    def speed_multiplier(self) -> float:
+        return self._renderer.speed_multiplier if self._renderer is not None else 1.0
+
+    def consume_restart_request(self) -> bool:
+        return self._renderer.consume_restart_request() if self._renderer is not None else False
+
+    def consume_skip_request(self) -> bool:
+        return self._renderer.consume_skip_request() if self._renderer is not None else False
+
+    def show_episode_end_banner(self, summary: dict) -> None:
+        if self._renderer is not None:
+            self._renderer.show_episode_end_banner(summary)
 
     def close(self):
         if self._renderer is not None:
