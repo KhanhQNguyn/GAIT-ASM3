@@ -10,7 +10,11 @@ import pytest
 import arena.rewards as rewards_module
 from arena.core_env import ArenaCoreEnv
 from arena.entities import Enemy
-from arena.rewards import APPROACH_REWARD_EPISODE_CAP, compute_reward
+from arena.rewards import (
+    APPROACH_REWARD_EPISODE_CAP,
+    PROGRESS_REWARD_EPISODE_CAP,
+    compute_reward,
+)
 from arena.rewards_config import (
     R_AIMED_HIT_BONUS,
     R_APPROACH_NEAREST_ENEMY,
@@ -19,6 +23,7 @@ from arena.rewards_config import (
     R_DEATH,
     R_KILL_ENEMY,
     R_KILL_SPAWNER,
+    R_PHASE_PROGRESS,
     R_SHOOT_TOWARD_ENEMY,
     R_TIME_STEP_PENALTY,
     R_WALL_PROXIMITY_PER_STEP,
@@ -78,6 +83,84 @@ def test_death_penalty_dominates_a_full_episode_of_positive_reward():
     assert breakdown.total < 0
 
 
+def test_damage_economy_makes_tanking_hits_unprofitable():
+    """DECISION (2026-09-08c glass-cannon fix, see FIX_PART2.md): the
+    survival incentive is carried by the DAMAGE economy, not by inflating
+    R_DEATH. R_DAMAGE_TAKEN_PER_HP was raised -0.5 -> -0.7 (paired with
+    enemy.contact_damage 25 -> 20 in config/arena.json), so absorbing a full
+    100-HP health bar of contact costs -70 BEFORE the death term -- roughly
+    R_KILL_ENEMY * 11, i.e. trading contact for one-shot kills (~+6.25 each)
+    is a losing exchange. Pins the constant so a silent revert to -0.5 is
+    caught; a deliberate retune updates this test.
+    """
+    assert R_DAMAGE_TAKEN_PER_HP == -0.7
+    full_bar = compute_reward({"damage_taken": 100.0})
+    assert full_bar.damage_taken == pytest.approx(-70.0)
+    # a full bar of damage must sting far more than a single kill pays, so
+    # the agent cannot shrug off sustained contact while farming kills
+    assert abs(full_bar.damage_taken) >= 10 * R_KILL_ENEMY
+
+
+def test_progression_rewards_are_uncapped():
+    """DECISION (2026-09-08e spec-alignment, see FIX_PART2.md): every
+    section-5 progression reward (kill_enemy, kill_spawner, phase_progress) is
+    paid IN FULL every time -- PROGRESS_REWARD_EPISODE_CAP is +inf (disabled).
+    The 2026-09-08c cap clamped kill_spawner + phase_progress, i.e. two of the
+    five reward terms the spec requires, for most of the episode; that is a
+    bigger deviation from section 5 than any optional shaping, so it was
+    removed. Pins the decision so a silent re-enable to a finite value is
+    caught.
+    """
+    assert math.isinf(PROGRESS_REWARD_EPISODE_CAP)
+
+    # A huge running progression total does NOT reduce this step's payout.
+    b = compute_reward(
+        {
+            "phase_advanced": True,
+            "spawners_killed": 2,
+            "enemies_killed": 4,
+            "cumulative_progress_reward": 1_000_000.0,
+        }
+    )
+    assert b.phase_progress == R_PHASE_PROGRESS
+    assert b.kill_spawner == pytest.approx(R_KILL_SPAWNER * 2)
+    assert b.kill_enemy == pytest.approx(R_KILL_ENEMY * 4)
+
+
+def test_progress_cap_machinery_still_clamps_when_re_enabled(monkeypatch):
+    """The clamp code + core_env's running-total plumbing are retained so a
+    re-enable is a one-line change. Patch the cap to a finite value and
+    verify it scales kill_spawner + phase_progress together to the remaining
+    budget while leaving kill_enemy on the same step untouched.
+    """
+    cap = 100.0
+    monkeypatch.setattr(rewards_module, "PROGRESS_REWARD_EPISODE_CAP", cap)
+
+    raw_capped = R_PHASE_PROGRESS + R_KILL_SPAWNER  # this step's capped-term total
+    already = cap - raw_capped / 2.0  # leave exactly half the step's budget
+    near = compute_reward(
+        {
+            "phase_advanced": True,
+            "spawners_killed": 1,
+            "enemies_killed": 2,  # never capped
+            "cumulative_progress_reward": already,
+        }
+    )
+    remaining = cap - already
+    assert near.phase_progress + near.kill_spawner == pytest.approx(remaining)
+    scale = remaining / raw_capped
+    assert near.phase_progress == pytest.approx(R_PHASE_PROGRESS * scale)
+    assert near.kill_spawner == pytest.approx(R_KILL_SPAWNER * scale)
+    assert near.kill_enemy == pytest.approx(R_KILL_ENEMY * 2)  # untouched
+
+    over = compute_reward(
+        {"phase_advanced": True, "spawners_killed": 1, "enemies_killed": 3,
+         "cumulative_progress_reward": cap}
+    )
+    assert over.phase_progress == 0.0 and over.kill_spawner == 0.0
+    assert over.kill_enemy == pytest.approx(R_KILL_ENEMY * 3)
+
+
 def test_reward_breakdown_sums_to_total():
     """RewardBreakdown.total must equal the sum of its individual fields --
     guards against a term being added to the dataclass but forgotten in the
@@ -120,11 +203,12 @@ def test_damage_dealt_reward_scales_with_hp_removed():
     breakdown = compute_reward({"damage_dealt": 25.0})
     assert breakdown.damage_dealt == pytest.approx(25.0 * R_DAMAGE_DEALT_PER_HP)
 
-    # A full 30-HP enemy (two 25-damage hits, second one clamped by
-    # min(damage, health) in core_env) earns 30 * R_DAMAGE_DEALT_PER_HP of
-    # this term plus R_KILL_ENEMY for the kill itself.
-    full_enemy = compute_reward({"damage_dealt": 30.0, "enemies_killed": 1})
-    assert full_enemy.damage_dealt == pytest.approx(30.0 * R_DAMAGE_DEALT_PER_HP)
+    # A one-shot kill on a 25-HP enemy (base_health 25 == projectile_damage
+    # 25 since 2026-09-08; core_env clamps damage_dealt at remaining HP)
+    # earns 25 * R_DAMAGE_DEALT_PER_HP of this term plus R_KILL_ENEMY for
+    # the kill itself.
+    full_enemy = compute_reward({"damage_dealt": 25.0, "enemies_killed": 1})
+    assert full_enemy.damage_dealt == pytest.approx(25.0 * R_DAMAGE_DEALT_PER_HP)
     assert full_enemy.kill_enemy == R_KILL_ENEMY
 
 
@@ -168,22 +252,20 @@ def test_wall_proximity_ramps_linearly_and_stops_outside_margin():
     assert absent.wall_proximity == 0.0
 
 
-def test_shoot_toward_enemy_reward_fires_on_aimed_shot():
-    """R_SHOOT_TOWARD_ENEMY (2026-08-28 rebalance) must pay out exactly when
-    step_events says the player fired at a nearby enemy, and not otherwise.
+def test_shoot_toward_enemy_reward_disabled_by_decision():
+    """DECISION (2026-09-08d less-attack fix, see BUG_LESS_ATTACK.md):
+    R_SHOOT_TOWARD_ENEMY is DISABLED at 0.0. It paid per shot for FACING the
+    objective, hit or miss -- the direct spray incentive (real fire-time
+    alignment measured ~0.3, so it paid ~+0.04/shot just for pointing at the
+    swarm). The `shot_toward_enemy` step_events key and the graded
+    proportional payout wiring are RETAINED so re-enabling is a one-line
+    constant change; this test pins the decision so a silent revert is
+    caught.
     """
-    aimed = compute_reward({"shot_toward_enemy": True})
-    assert aimed.shoot_toward_enemy == pytest.approx(R_SHOOT_TOWARD_ENEMY)
-
-    not_aimed = compute_reward({"shot_toward_enemy": False})
-    assert not_aimed.shoot_toward_enemy == 0.0
-
-    # Graded (2026-09-08): a partial alignment pays proportionally.
-    half_aimed = compute_reward({"shot_toward_enemy": 0.5})
-    assert half_aimed.shoot_toward_enemy == pytest.approx(R_SHOOT_TOWARD_ENEMY / 2.0)
-
-    absent = compute_reward({})
-    assert absent.shoot_toward_enemy == 0.0
+    assert R_SHOOT_TOWARD_ENEMY == 0.0
+    for flag in (True, False, 0.5, 1.0):
+        assert compute_reward({"shot_toward_enemy": flag}).shoot_toward_enemy == 0.0
+    assert compute_reward({}).shoot_toward_enemy == 0.0
 
 
 def test_shot_toward_enemy_flag_is_graded_alignment():
@@ -234,6 +316,23 @@ def test_aimed_hit_bonus_pays_graded_alignment_sum():
     )
     assert compute_reward({"aimed_hit_alignment_sum": 0.0}).aimed_hit == 0.0
     assert compute_reward({}).aimed_hit == 0.0
+
+
+def test_aimed_hit_bonus_dominates_a_spray_hit():
+    """DECISION (2026-09-08d less-attack fix, see BUG_LESS_ATTACK.md):
+    R_AIMED_HIT_BONUS raised 1.0 -> 3.0 so a lined-up hit clearly out-earns a
+    spray hit, making precise aim the better shooting strategy. A near-zero
+    alignment hit that also kills (25 HP one-shot enemy) must still pay less
+    than a well-aimed non-killing hit.
+    """
+    assert R_AIMED_HIT_BONUS == 3.0
+    aimed_no_kill = compute_reward({"damage_dealt": 25.0, "aimed_hit_alignment_sum": 0.9})
+    spray_kill = compute_reward(
+        {"damage_dealt": 25.0, "enemies_killed": 1, "aimed_hit_alignment_sum": 0.05}
+    )
+    assert aimed_no_kill.total > spray_kill.total - R_KILL_ENEMY
+    # and an aimed hit's bonus alone beats the full damage-dealt payout
+    assert R_AIMED_HIT_BONUS * 0.9 > 25.0 * R_DAMAGE_DEALT_PER_HP
 
 
 def test_aimed_hit_bonus_fires_on_hit_wiring():

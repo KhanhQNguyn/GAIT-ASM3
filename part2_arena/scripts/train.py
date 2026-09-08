@@ -50,13 +50,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--style", type=int, choices=[1, 2], required=True)
     parser.add_argument("--algo", type=str, choices=["ppo", "dqn"], required=True)
-    parser.add_argument("--curriculum", type=str, choices=["on", "off"], default="off")
+    parser.add_argument("--curriculum", type=str, choices=["on", "off"], default="on")
     parser.add_argument("--timesteps", type=int, default=300_000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--config",
         type=str,
-        default="tuned_v1",
+        default="tuned_v3",
         help="hyperparameter preset name in config/hyperparams.json (e.g. baseline, tuned_v1)",
     )
     parser.add_argument(

@@ -56,6 +56,35 @@ from arena.rewards_config import (
 # real kill, however long the agent loiters near an enemy.
 APPROACH_REWARD_EPISODE_CAP: float = R_KILL_ENEMY
 
+# Per-episode cap on the PROGRESSION reward an episode can bank
+# (phase_progress + kill_spawner, cumulative -- NOT kill_enemy). DISABLED
+# (2026-09-08e): set to +inf so it never binds; the clamp code below and the
+# core_env running-total plumbing are RETAINED (and monkeypatch-tested) so a
+# re-enable is a one-line change to a finite value.
+#
+# History: 2026-09-08c added it at abs(R_DEATH) to stop a "rush to a high
+# phase, bank ~3 * R_PHASE_PROGRESS, then die" glass-cannon; 2026-09-08d
+# narrowed it to phase_progress + kill_spawner (kill_enemy uncapped so the
+# agent keeps fighting).
+#
+# DECISION to disable (2026-09-08e, see FIX_PART2.md / BUG_LESS_ATTACK.md):
+# phase_progress and kill_spawner are two of the FIVE reward terms the spec
+# REQUIRES (assessment_requirements_summary.md section 5: "positive reward
+# for progressing to the next phase", "larger positive reward for destroying
+# spawners"). Clamping a required term for ~70% of the episode is a bigger
+# deviation from section 5 than any optional shaping, and a Part II-J
+# ("reward structure") risk -- the trained agent was destroying ~4 spawners
+# per episode but only being paid for ~1.4. An agent that aggressively
+# clears phases and eventually dies to the difficulty ramp is the
+# spec-intended arcade behaviour and a stronger phase-system demo than one
+# that camps a low phase to the step cap. The glass-cannon is now shaped
+# only through the spec's own negative terms (R_DEATH, R_DAMAGE_TAKEN_PER_HP)
+# plus the hostile world.
+#
+# Mirrors APPROACH_REWARD_EPISODE_CAP; the caller (core_env) tracks the
+# running total in step_events["cumulative_progress_reward"].
+PROGRESS_REWARD_EPISODE_CAP: float = float("inf")
+
 
 @dataclass
 class RewardBreakdown:
@@ -173,11 +202,21 @@ def compute_reward(
             EPISODE, BEFORE this step -- the caller must track this across
             steps for the per-episode cap, APPROACH_REWARD_EPISODE_CAP, to
             actually bind)
+        "cumulative_progress_reward" float, default 0.0
+            (running total of kill_spawner + phase_progress already awarded
+            THIS EPISODE, BEFORE this step. Feeds PROGRESS_REWARD_EPISODE_CAP,
+            which is currently DISABLED (+inf) -- 2026-09-08e: it clamped two
+            spec-required reward terms, see the constant's comment -- so this
+            key is inert plumbing kept for a one-line re-enable.)
 
     Term mapping:
         kill_enemy             = R_KILL_ENEMY            * enemies_killed
         kill_spawner           = R_KILL_SPAWNER          * spawners_killed
         phase_progress         = R_PHASE_PROGRESS        * phase_advanced
+        (All three are paid in full -- PROGRESS_REWARD_EPISODE_CAP is +inf.
+         When re-enabled to a finite value, kill_spawner + phase_progress --
+         never kill_enemy -- scale down together so the episode running total
+         never exceeds it; FIX_PART2.md / BUG_LESS_ATTACK.md.)
         damage_taken            = R_DAMAGE_TAKEN_PER_HP  * damage_taken  (already negative)
         damage_dealt            = R_DAMAGE_DEALT_PER_HP  * damage_dealt
         death                  = R_DEATH                 * died
@@ -228,10 +267,28 @@ def compute_reward(
         remaining_budget = max(0.0, APPROACH_REWARD_EPISODE_CAP - cumulative_approach_reward)
         approach_nearest_enemy = min(raw_approach_reward, remaining_budget)
 
+    # The three section-5 progression rewards. All UNCAPPED as of 2026-09-08e
+    # (PROGRESS_REWARD_EPISODE_CAP is +inf -- see its comment). The clamp
+    # below is retained, and still exercised via monkeypatch tests, so a
+    # re-enable is one finite value: it scales phase_progress + kill_spawner
+    # (never kill_enemy) down together once the episode's running total would
+    # exceed the cap. cumulative_progress_reward defaults to 0.0.
+    kill_enemy = R_KILL_ENEMY * int(ev.get("enemies_killed", 0))
+    kill_spawner = R_KILL_SPAWNER * int(ev.get("spawners_killed", 0))
+    phase_progress = R_PHASE_PROGRESS * (1.0 if ev.get("phase_advanced") else 0.0)
+    raw_progress = kill_spawner + phase_progress
+    if raw_progress > 0.0:
+        cumulative_progress = float(ev.get("cumulative_progress_reward", 0.0))
+        remaining_progress = max(0.0, PROGRESS_REWARD_EPISODE_CAP - cumulative_progress)
+        if raw_progress > remaining_progress:
+            scale = remaining_progress / raw_progress
+            kill_spawner *= scale
+            phase_progress *= scale
+
     return RewardBreakdown(
-        kill_enemy=R_KILL_ENEMY * int(ev.get("enemies_killed", 0)),
-        kill_spawner=R_KILL_SPAWNER * int(ev.get("spawners_killed", 0)),
-        phase_progress=R_PHASE_PROGRESS * (1.0 if ev.get("phase_advanced") else 0.0),
+        kill_enemy=kill_enemy,
+        kill_spawner=kill_spawner,
+        phase_progress=phase_progress,
         damage_taken=R_DAMAGE_TAKEN_PER_HP * float(ev.get("damage_taken", 0.0)),
         damage_dealt=R_DAMAGE_DEALT_PER_HP * float(ev.get("damage_dealt", 0.0)),
         death=r_death * (1.0 if ev.get("died") else 0.0),

@@ -68,7 +68,7 @@ _DEFAULTS = {
         "max_speed": 6.0,
         "thrust_accel": 0.5,
         "friction": 0.97,
-        "rotate_speed_rad": 0.14,
+        "rotate_speed_rad": 0.20,
         "radius": 14.0,
         "shoot_cooldown_steps": 8,
         "projectile_speed": 12.0,
@@ -76,7 +76,7 @@ _DEFAULTS = {
     },
     "enemy": {
         "radius": 12.0,
-        "contact_damage": 12.0,
+        "contact_damage": 20.0,
         "contact_damage_cooldown_steps": 45,
         "base_health": 25.0,
         "max_concurrent_enemies": 18,
@@ -153,6 +153,17 @@ class ArenaCoreEnv:
         # fed back into step_events so compute_reward() can enforce its
         # per-episode cap (see arena/rewards.py APPROACH_REWARD_EPISODE_CAP).
         self._cumulative_approach_reward: float = 0.0
+        # running per-episode total of (kill_spawner + phase_progress), fed
+        # back into step_events for PROGRESS_REWARD_EPISODE_CAP. That cap is
+        # DISABLED (+inf) as of 2026-09-08e -- it clamped spec-required
+        # reward terms (see rewards.py) -- so this is inert plumbing kept
+        # (like _cumulative_approach_reward) for a one-line re-enable.
+        self._cumulative_progress_reward: float = 0.0
+        # total player shots actually fired this episode (cooldown was clear).
+        # scripts/eval_aim_stats.py diffs this instead of len(projectiles),
+        # which silently drops shots that collide the same step they fire
+        # (2026-09-08d, BUG_LESS_ATTACK.md fix D).
+        self._shots_fired: int = 0
         # Optional {constant_name: value} replacements handed to
         # rewards.compute_reward on every step -- training-time only, used
         # by scripts/train.py --death-penalty for the R_DEATH ablation
@@ -192,6 +203,8 @@ class ArenaCoreEnv:
         self._render_events = []
         self._last_step_events = self._empty_step_events()
         self._cumulative_approach_reward = 0.0
+        self._cumulative_progress_reward = 0.0
+        self._shots_fired = 0
 
         obs = build_observation(self.state, self.arena_width, self.arena_height)
         self._last_obs = obs
@@ -242,13 +255,15 @@ class ArenaCoreEnv:
                                                            #   SHOT_NO_TARGET_RADIUS (or none)
             }
 
-        Plus two OPTIONAL keys feeding Member D's R_APPROACH_NEAREST_ENEMY
-        gate/cap (see arena/rewards.py::compute_reward's docstring --
-        defaults there make these a no-op if omitted, but this class
-        populates them for real): "nearest_enemy_distance" (float, the
-        post-move distance to the nearest enemy, or +inf if none) and
-        "cumulative_approach_reward" (float, this episode's running total
-        of approach_nearest_enemy BEFORE this step).
+        Plus OPTIONAL keys feeding compute_reward's per-episode caps (see
+        its docstring -- defaults there make each cap a no-op if omitted,
+        but this class populates them for real): "nearest_enemy_distance"
+        (float, post-move distance to the nearest enemy, or +inf if none)
+        and "cumulative_approach_reward" (float, this episode's running
+        total of approach_nearest_enemy BEFORE this step) for
+        R_APPROACH_NEAREST_ENEMY; "cumulative_progress_reward" (float, this
+        episode's running total of kill_enemy + kill_spawner +
+        phase_progress BEFORE this step) for PROGRESS_REWARD_EPISODE_CAP.
         """
         if self.state is None:
             raise RuntimeError("ArenaCoreEnv.step() called before reset()")
@@ -287,6 +302,7 @@ class ArenaCoreEnv:
             ev["distance_delta_to_nearest_enemy"] = 0.0
         ev["nearest_enemy_distance"] = new_nearest if new_nearest is not None else float("inf")
         ev["cumulative_approach_reward"] = self._cumulative_approach_reward
+        ev["cumulative_progress_reward"] = self._cumulative_progress_reward
 
         ev["shot_fired_with_no_target"] = self._shot_no_target_flag
         ev["shot_toward_enemy"] = self._shot_toward_enemy_flag
@@ -326,6 +342,9 @@ class ArenaCoreEnv:
         obs = build_observation(st, self.arena_width, self.arena_height)
         rb = compute_reward(ev, self._reward_overrides)
         self._cumulative_approach_reward += rb.approach_nearest_enemy
+        # kill_enemy is intentionally excluded -- it is uncapped (2026-09-08d,
+        # BUG_LESS_ATTACK.md); only phase/spawner progression is capped.
+        self._cumulative_progress_reward += rb.kill_spawner + rb.phase_progress
         self._last_obs = obs
         self._last_step_events = ev
         info = {
@@ -365,6 +384,7 @@ class ArenaCoreEnv:
             "distance_delta_to_nearest_enemy": 0.0,
             "nearest_enemy_distance": float("inf"),
             "cumulative_approach_reward": 0.0,
+            "cumulative_progress_reward": 0.0,
             "shot_fired_with_no_target": False,
             "shot_toward_enemy": 0.0,
             "wall_distance": float("inf"),
@@ -482,7 +502,13 @@ class ArenaCoreEnv:
             if (p.vx, p.vy) != (0.0, 0.0):
                 p.orientation = math.atan2(p.vy, p.vx)
 
-        # integrate + clamp to the arena
+        # integrate + clamp to the arena. Zero ONLY the axis that hit a wall
+        # (wall-tangent slide: a glancing approach keeps sliding along the
+        # wall, only a head-on or into-a-corner approach dead-stops). For
+        # style 1 the remaining escape cost is reorientation -- pc
+        # ["rotate_speed_rad"] was raised 0.14 -> 0.2 on 2026-09-08c
+        # (FIX_PART2.md symptom 4: style-1 policies nosed into a wall while
+        # being swarmed and took ~22 rotate steps to turn away; ~16 now).
         nx, ny = integrate_position(p.x, p.y, p.vx, p.vy, 1.0)
         cx, cy = wrap_or_clamp_to_bounds(nx, ny, self.arena_width, self.arena_height)
         if cx != nx:
@@ -497,20 +523,16 @@ class ArenaCoreEnv:
         pc = self._pcfg
         if p.shoot_cooldown > 0:
             return
+        self._shots_fired += 1
         spd = float(pc["projectile_speed"])
 
-        # Aim shaping (R_SHOOT_TOWARD_ENEMY, GRADED since 2026-09-08): the
-        # term pays R_SHOOT_TOWARD_ENEMY * max(0, cos(diff)) where diff is
-        # the angle between the shot direction and its objective -- (a) the
-        # nearest enemy within SHOT_NO_TARGET_RADIUS, or (b) -- when no
-        # enemy is in range -- the nearest active spawner (no distance
-        # gate: spawners are static and this fallback is what lets the
-        # agent discover spawner kills / phase progression). Grading
-        # replaces the old binary 45-deg window so the policy gets a smooth
-        # gradient toward FACING the objective before firing -- most
-        # important for style 2, where aim is coupled to the cardinal
-        # movement direction and the old binary flag gave zero signal until
-        # the shot was already inside the window.
+        # Fire-time aim alignment, stamped on the projectile so
+        # R_AIMED_HIT_BONUS can pay for INTENDED hits only (an alignment of
+        # ~0 means the hit, if any, was luck). `_shot_toward_enemy_flag` is
+        # also set from it for the (now disabled, 2026-09-08d)
+        # R_SHOOT_TOWARD_ENEMY term and for eval instrumentation. Objective
+        # is the nearest enemy within SHOT_NO_TARGET_RADIUS, else the
+        # nearest active spawner -- see _graded_aim_alignment.
         alignment = self._graded_aim_alignment()
 
         # The same graded value is stamped onto the projectile so

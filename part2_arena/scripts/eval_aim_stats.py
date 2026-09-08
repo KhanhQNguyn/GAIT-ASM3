@@ -9,10 +9,14 @@ Usage (from part2_arena/):
     python scripts/eval_aim_stats.py --style 1 --config tuned_v3 --curriculum on
 
 Per-episode metrics:
-    shots_fired      player projectiles created
+    shots_fired      player shots actually fired (core_env._shots_fired diff;
+                     since 2026-09-08d -- BUG_LESS_ATTACK.md -- NOT a
+                     len(projectiles) diff, which dropped same-step-collision
+                     shots and inflated mean_alignment ~3x)
     mean_alignment   average graded aim flag at fire time (1.0 = dead-on)
     frac_aligned30   fraction of shots within 30 deg of the enemy bearing
     damage_dealt     total enemy HP removed by projectiles
+                     (rb.damage_dealt / R_DAMAGE_DEALT_PER_HP)
     wall_frac        fraction of steps with wall_distance < 120 px
     kills / phase / return
 """
@@ -74,19 +78,21 @@ def run_episode(env: ArenaGymEnv, model, deterministic: bool) -> dict:
     total_reward = 0.0
     terminated = truncated = False
     while not (terminated or truncated):
-        prev = len(env.core_env.state.projectiles)
+        prev_fired = env.core_env._shots_fired
         action, _ = model.predict(obs, deterministic=deterministic)
         obs, reward, terminated, truncated, info = env.step(int(action))
         total_reward += float(reward)
         steps += 1
-        st = env.core_env.state
-        new_shots = max(0, len(st.projectiles) - prev)
-        for _ in range(new_shots):
+        # A shot fired this step iff core_env's real fired-shot counter grew
+        # (2026-09-08d fix, BUG_LESS_ATTACK.md). The old len(projectiles)
+        # diff silently dropped shots that collided the same step they fired
+        # -- exactly the spray shots -- so mean_align read ~3x too high.
+        if env.core_env._shots_fired > prev_fired:
             player_projectiles += 1
             alignment_sum += float(env.core_env._shot_toward_enemy_flag)
             if env.core_env._shot_toward_enemy_flag >= math.cos(math.radians(30.0)):
                 aligned30 += 1
-        # Reward terms are scaled (0.05/HP dealt, -0.5/HP taken): divide back
+        # Reward terms are scaled (0.05/HP dealt, -0.7/HP taken): divide back
         # out to report raw HP.
         rb = info["reward_breakdown"]
         damage_dealt += rb.damage_dealt / R_DAMAGE_DEALT_PER_HP

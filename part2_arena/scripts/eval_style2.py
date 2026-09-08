@@ -36,8 +36,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=str,
-        default="tuned_v4",
-        help="hyperparameter preset the model was trained with (part of its filename)",
+        default="tuned_v3",
+        help="hyperparameter preset the model was trained with (part of its filename). "
+        "tuned_v3 since the 2026-09-08c fix (was tuned_v4 / gamma 0.999 -- retired, see "
+        "config/hyperparams.json _notes).",
     )
     parser.add_argument("--episodes", type=int, default=5)
     parser.add_argument(
