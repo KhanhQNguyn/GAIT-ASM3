@@ -162,3 +162,17 @@ def test_speed_changes_glide_frame_count_not_render_fps(renderer):
     renderer._clock = fake_clock
     renderer.draw(_snapshot((1, 0)))
     assert fake_clock.tick_calls == [60]
+
+def test_frames_per_step_scales_with_speed_and_is_at_least_one(renderer):
+    """The per-env-step frame budget (used by the trainer/eval render loop
+    for EVERY step, moved or blocked) must lengthen as speed drops and
+    shorten as it rises, and never be < 1."""
+    renderer._speed_multiplier = 1.0
+    base = renderer.frames_per_step()
+    renderer._speed_multiplier = 4.0
+    fast = renderer.frames_per_step()
+    renderer._speed_multiplier = 0.1
+    slow = renderer.frames_per_step()
+
+    assert fast < base < slow
+    assert fast >= 1

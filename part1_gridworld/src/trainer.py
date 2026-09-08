@@ -244,26 +244,16 @@ def train(
                         step=steps, paused=renderer.is_paused,
                         speed=renderer._speed_multiplier,
                     )
-                    # One env.step() has just happened, moving the agent (at
-                    # most) one tile. Keep drawing that same post-step
-                    # snapshot across several frames so the renderer can
-                    # glide the agent from its previous tile to this one
-                    # instead of snapping to it in a single frame -- this is
-                    # what decouples the RL action rate from the render/
-                    # animation rate. No further env.step() calls happen
-                    # here; only the action rate is paced, not the physics.
+                    # pace every env step over the same speed-scaled frame
+                    # budget, whether or not the agent moved (the agent
+                    # glides within it; env.step() is not called again here)
                     snapshot = env.get_state_snapshot()
-                    renderer.draw(snapshot)
-                    if not renderer.handle_events():
-                        done = True  # window closed - end this episode...
-                        stop_requested = True  # ...and stop training entirely
-                    else:
-                        while not renderer.agent_animation_complete:
-                            renderer.draw(snapshot)
-                            if not renderer.handle_events():
-                                done = True
-                                stop_requested = True
-                                break
+                    for _ in range(renderer.frames_per_step()):
+                        renderer.draw(snapshot)
+                        if not renderer.handle_events():
+                            done = True  # window closed - end this episode...
+                            stop_requested = True  # ...and stop training entirely
+                            break
 
                 state, action = next_state, next_action
 
@@ -281,8 +271,8 @@ def evaluate_policy(env: GridWorldEnv, q_table: QTable, render: bool = True) -> 
     summary dict (steps, total_return, died). Used both for the video demo
     ("learned policy, not random" evidence) and for verifying convergence.
     """
-    rng = set_seed(0)  # epsilon=0 makes tie-breaking the only randomness left
-    env._rng.seed(0)  # reproducible monster movement (see train() for why)
+    rng = set_seed(1)  # tie-break seed
+    env._rng.seed(1)  # reproducible monster movement 
     renderer: GridWorldRenderer | None = None
     if render:
         renderer = GridWorldRenderer(grid_size=env.grid_size, caption="Watching learned policy")
@@ -331,15 +321,15 @@ def evaluate_policy(env: GridWorldEnv, q_table: QTable, render: bool = True) -> 
                     episode=0, epsilon=0.0, return_=total_return, step=steps,
                     paused=renderer.is_paused, speed=renderer._speed_multiplier,
                 )
-                # See the matching comment in train(): keep drawing the same
-                # post-step snapshot until the agent finishes gliding to its
-                # new tile, instead of one env.step() per rendered frame.
+                # pace every env step over the same speed-scaled frame budget
+                # (see train()); the agent glides within it
                 snapshot = env.get_state_snapshot()
-                renderer.draw(snapshot)
-                quit_requested = not renderer.handle_events()
-                while not quit_requested and not renderer.agent_animation_complete:
+                quit_requested = False
+                for _ in range(renderer.frames_per_step()):
                     renderer.draw(snapshot)
-                    quit_requested = not renderer.handle_events()
+                    if not renderer.handle_events():
+                        quit_requested = True
+                        break
                 if quit_requested:
                     break
     finally:

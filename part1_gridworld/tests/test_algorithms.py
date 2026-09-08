@@ -118,19 +118,20 @@ def test_save_load_qtable_round_trip(tmp_path):
     path and every comparison script depend on.
     """
     q = QTable(n_actions=4)
-    q[(0, 0, 3, False, False, (0, 0), 0)][1] = 2.5
-    q[(1, 2, 0, True, True, (1, -1), 2)][3] = -1.25
+    safe_state = (0, 0, 3, False, False, (0, 0), 0, (0, 0, 0, 0))
+    monster_state = (1, 2, 0, True, True, (1, -1), 2, (2, 0, 1, 0))
+    q[safe_state][1] = 2.5
+    q[monster_state][3] = -1.25
 
     path = tmp_path / "level0_q_learning.json"
     save_qtable(q, path)
     assert path.exists()
 
     loaded = load_qtable(path, n_actions=4)
-    monster_state = (1, 2, 0, True, True, (1, -1), 2)
-    assert loaded[(0, 0, 3, False, False, (0, 0), 0)] == q[(0, 0, 3, False, False, (0, 0), 0)]
+    assert loaded[safe_state] == q[safe_state]
     assert loaded[monster_state] == q[monster_state]
     # An unvisited state still lazily defaults, matching a fresh QTable.
-    assert loaded[(9, 9, 0, False, False, (0, 0), 0)] == [0.0, 0.0, 0.0, 0.0]
+    assert loaded[(9, 9, 0, False, False, (0, 0), 0, (0, 0, 0, 0))] == [0.0, 0.0, 0.0, 0.0]
 
 
 def test_load_qtable_rejects_mismatched_n_actions(tmp_path):
@@ -138,7 +139,7 @@ def test_load_qtable_rejects_mismatched_n_actions(tmp_path):
     loudly, not silently index-error later during a rollout.
     """
     q = QTable(n_actions=4)
-    q[(0, 0, 0, False, False, (0, 0), 0)][0] = 1.0
+    q[(0, 0, 0, False, False, (0, 0), 0, (0, 0, 0, 0))][0] = 1.0
     path = tmp_path / "level0_q_learning.json"
     save_qtable(q, path)
 

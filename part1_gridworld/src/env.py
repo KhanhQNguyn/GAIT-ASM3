@@ -9,7 +9,7 @@ Known limitations / design notes
 ---------------------------------
 State representation chosen:
     (agent_x, agent_y, apples_bitmask, has_key, chest_open, monster_dir,
-     monster_dist)
+     monster_dist, dir_threats)
 
 - apples_bitmask is an int where bit i (0-indexed) = 1 means apple i (in
   level JSON order) is still uncollected. All-zeros => all collected.
@@ -17,13 +17,17 @@ State representation chosen:
   hashable for a dict-keyed Q-table.
 
 - monster_dir / monster_dist summarise the NEAREST monster relative to the
-  agent: monster_dir = (sign(dx), sign(dy)) in {-1,0,1}^2, monster_dist = a
-  Manhattan-distance bucket (1, 2, or 3 meaning 3+); both are (0, 0) / 0 on
-  levels with no monsters. Absolute monster coordinates were dropped on
-  purpose -- they blow the level4-6 state space into the millions, far past
-  what the training budget can cover, so the agent never learned avoidance.
-  A relative nearest-monster bearing is a partial view but still supports a
-  reactive avoidance policy (and mirrors Part II's nearest-enemy observation).
+  agent (medium-range fleeing signal): monster_dir = (sign(dx), sign(dy)) in
+  {-1,0,1}^2, monster_dist = a Manhattan-distance bucket (1, 2, or 3 meaning
+  3+); both are (0, 0) / 0 on levels with no monsters.
+
+- dir_threats is a 4-tuple, one per Action (UP, DOWN, LEFT, RIGHT): 2 = a
+  monster or fire is on that target tile (stepping there is death), 1 = a
+  monster is adjacent to it (could step onto it next turn), 0 = safe or
+  blocked. This covers EVERY monster + fire, not just the nearest, so the
+  agent can escape a pincer between two/three monsters and never walk onto
+  fire. It is count-independent (3^4 combos), so it does not re-explode the
+  state space the way per-monster absolute coordinates did.
 """
 
 from __future__ import annotations
@@ -89,7 +93,7 @@ class GridWorldEnv:
     it being hashable and stable):
 
         (agent_x, agent_y, apples_bitmask, has_key, chest_open, monster_dir,
-         monster_dist)
+         monster_dist, dir_threats)
 
       - agent_x, agent_y : int tile coords.
       - apples_bitmask   : int; bit i (0-indexed) SET means apple i -- in the
@@ -104,12 +108,16 @@ class GridWorldEnv:
                            in {-1, 0, 1}; (0, 0) when the level has no monsters.
       - monster_dist     : Manhattan-distance bucket to that nearest monster
                            -- 1, 2, or 3 (meaning 3+); 0 when no monsters.
+      - dir_threats      : 4-tuple, one per Action (UP, DOWN, LEFT, RIGHT):
+                           2 = monster or fire on that tile (death), 1 = a
+                           monster adjacent to it, 0 = safe/blocked. Covers
+                           all monsters + fire, not just the nearest.
 
-    Only the nearest monster is encoded, and only its relative bearing plus a
-    coarse distance -- not absolute coordinates. This keeps the level4-6 state
-    space small enough to actually learn monster avoidance in the training
-    budget; it is a partial view but sufficient for a reactive avoidance
-    policy (cf. Part II's nearest-enemy observation).
+    Hazards are encoded relative to the agent (nearest-monster bearing +
+    a per-move threat level), never as absolute coordinates -- that keeps the
+    state space small enough to learn avoidance in the training budget while
+    still giving enough information to escape a multi-monster pincer and stay
+    off fire (cf. Part II's relative nearest-hazard observation).
 
     Mechanics this class must enforce EXACTLY per config/schema.md, and must
     NOT be altered by any helper function elsewhere in the codebase:
@@ -300,7 +308,7 @@ class GridWorldEnv:
         Returns:
             The initial state tuple:
             (agent_x, agent_y, apples_bitmask, has_key, chest_open, monster_dir,
-             monster_dist)
+             monster_dist, dir_threats)
         """
         self._agent_pos = self._agent_start
         # All apples present: bits 0..N-1 all set
@@ -331,6 +339,26 @@ class GridWorldEnv:
         bucket = 1 if dist == 1 else (2 if dist == 2 else 3)
         return ((dx > 0) - (dx < 0), (dy > 0) - (dy < 0)), bucket
 
+    def _direction_threats(self) -> tuple[int, int, int, int]:
+        """Per-move hazard for the tile the agent would step into with each
+        Action (UP, DOWN, LEFT, RIGHT): 2 = monster or fire on it (death),
+        1 = a monster adjacent to it (could step onto it next turn), 0 = safe
+        or blocked. Covers every monster + fire, not just the nearest."""
+        monsters = self._monster_positions_set()
+        threats = []
+        for action in Action:
+            dx, dy = ACTION_DELTAS[action]
+            tx, ty = self._agent_pos[0] + dx, self._agent_pos[1] + dy
+            if self._is_blocked(tx, ty):
+                threats.append(0)
+            elif (tx, ty) in monsters or (tx, ty) in self._fire:
+                threats.append(2)
+            elif any((tx + ox, ty + oy) in monsters for ox, oy in ACTION_DELTAS.values()):
+                threats.append(1)
+            else:
+                threats.append(0)
+        return tuple(threats)
+
     def _get_state(self) -> tuple:
         """Return the current hashable state tuple."""
         monster_dir, monster_dist = self._nearest_monster_features()
@@ -342,6 +370,7 @@ class GridWorldEnv:
             self._chest_open,
             monster_dir,
             monster_dist,
+            self._direction_threats(),
         )
 
     def _is_blocked(self, x: int, y: int) -> bool:

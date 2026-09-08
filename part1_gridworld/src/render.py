@@ -394,6 +394,12 @@ class GridWorldRenderer:
         """
         return self._lerp_t >= 1.0
 
+    def frames_per_step(self) -> int:
+        """Frames to show one env step for at the current speed -- the same
+        budget the agent glide uses, applied whether or not the agent moved
+        so a blocked step or a monster hop is held for the same time."""
+        return self._lerp_frames_for_current_speed()
+
     def _cached_render(
         self,
         key: str,
