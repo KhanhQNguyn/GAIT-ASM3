@@ -11,12 +11,12 @@ Creativity additions (Section 4 of MEMBER_A_GRIDWORLD_CORE.md):
 
 from __future__ import annotations
 
+import math
+import random
 from collections.abc import Callable
 from typing import Any
 
 import pygame
-import math
-import random
 
 from src import assets
 from src.sprites import load_sprite
@@ -213,10 +213,6 @@ class GridWorldRenderer:
 
         self._draw_floor(gw, gh, off_y)
         dt = self._clock.get_time() / 1000.0 or (1.0 / 60.0)
-
-        gw: int = env_state["grid_w"]
-        gh: int = env_state["grid_h"]
-        off_y = self._hud_height  # vertical offset for grid (HUD at top)
 
         # --- Grid lines ---
         for col in range(gw + 1):

@@ -24,7 +24,7 @@ from src.plot_results import plot_death_rate, plot_training_curve
 from src.trainer import train
 
 MONSTER_LEVEL_IDS = [4, 5]
-LOGS_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs"
+LOGS_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs" / "task4"
 
 
 def run_comparison(level_id: int, seed: int = 0) -> dict[str, pathlib.Path]:

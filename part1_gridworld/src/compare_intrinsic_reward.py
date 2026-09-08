@@ -14,7 +14,7 @@ from src.plot_results import plot_training_curve
 from src.trainer import train
 
 COMPARISON_LEVEL_ID = 6
-LOGS_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs"
+LOGS_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs" / "task5"
 
 
 def run_comparison(seed: int = 0) -> dict[str, pathlib.Path]:

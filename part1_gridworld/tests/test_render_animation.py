@@ -33,7 +33,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 pygame = pytest.importorskip("pygame")
 
-from src.render import GridWorldRenderer, TILE_SIZE_PX  # noqa: E402
+from src.render import GridWorldRenderer  # noqa: E402
 
 
 def _snapshot(agent_pos: tuple[int, int]) -> dict:

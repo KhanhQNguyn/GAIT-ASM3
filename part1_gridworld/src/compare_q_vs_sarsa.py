@@ -29,7 +29,7 @@ from src.trainer import make_env, train
 
 COMPARISON_LEVEL_ID = 1  # fixed: level1 is the Task-2 hazard-shortcut layout
 FIGURES_DIR = pathlib.Path(__file__).resolve().parent.parent.parent / "report" / "figures"
-LOGS_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs"
+LOGS_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs" / "task2"
 
 
 def run_comparison(seed: int = 0) -> dict[str, pathlib.Path]:
@@ -45,13 +45,17 @@ def run_comparison(seed: int = 0) -> dict[str, pathlib.Path]:
     csv_paths = {}
     for algorithm in ("q_learning", "sarsa"):
         csv_path = LOGS_DIR / f"task2_level{COMPARISON_LEVEL_ID}_{algorithm}.csv"
-        train(
+        q_table = train(
             level_id=COMPARISON_LEVEL_ID,
             algorithm=algorithm,
             seed=seed,
             render=False,
             csv_log_path=csv_path,
         )
+        # Persist each freshly trained table so plot_qualitative_rollout()
+        # (and run_three_way_comparison()) load THESE tables, not whatever
+        # stale models/level1_*.json happens to be on disk.
+        save_qtable(q_table, qtable_path(COMPARISON_LEVEL_ID, algorithm))
         csv_paths[algorithm] = csv_path
 
     figure_path = plot_training_curve(

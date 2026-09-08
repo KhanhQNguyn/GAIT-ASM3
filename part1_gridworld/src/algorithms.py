@@ -39,11 +39,13 @@ class QTable:
 
 def qtable_path(level_id: int, algorithm: str) -> pathlib.Path:
     """Canonical on-disk location for a trained Q-table:
-    MODELS_DIR / f"level{level_id}_{algorithm}.json". One fixed convention so
-    trainer.train() (writer), main.py's watch-only path (reader), and any
-    eval/comparison script all agree without passing paths around.
+    MODELS_DIR / "level" / f"level{level_id}" / f"level{level_id}_{algorithm}.json".
+    One fixed convention so trainer.train() (writer), main.py's watch-only
+    path (reader), and any eval/comparison script all agree without passing
+    paths around. Each level gets its own "level/level<N>/" subfolder,
+    kept apart from the task/comparison log folders (see logs/ layout).
     """
-    return MODELS_DIR / f"level{level_id}_{algorithm}.json"
+    return MODELS_DIR / "level" / f"level{level_id}" / f"level{level_id}_{algorithm}.json"
 
 
 def _state_to_jsonable(state) -> list:
