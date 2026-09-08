@@ -8,11 +8,12 @@ Capped at <= 8 terms per the architecture principle: 5 required by the spec
 + up to 2 ACTIVE optional shaping terms, each justified below. The 2-slot
 guideline is a self-imposed preference, not a rubric rule -- the rubric only
 demands that optional shaping be justified -- so the 2026-08-28 rebalance
-intentionally takes 3 active slots (R_DAMAGE_DEALT_PER_HP, R_TIME_STEP_PENALTY,
-R_SHOOT_TOWARD_ENEMY) because the diagnosis showed reward at the HIT level was
-still too sparse to train aiming. If you add a new term, you must also add its
-one-line justification here (rubric checks for this) and log it separately to
-TensorBoard in rewards.py.
+intentionally takes 4 active slots (R_DAMAGE_DEALT_PER_HP, R_TIME_STEP_PENALTY,
+R_SHOOT_TOWARD_ENEMY, R_WALL_PROXIMITY_PER_STEP) because each one targets a
+MEASURED failure of a previous training iteration (passivity, no combat
+gradient, no spawner discovery, wall-retreat). If you add a new term, you
+must also add its one-line justification here (rubric checks for this) and
+log it separately to TensorBoard in rewards.py.
 
 REBALANCE (2026-08-28, team decision after diagnosing degenerate policies):
 evaluation of the tuned_v1/v2 models showed every policy collapsing to
@@ -104,6 +105,25 @@ strictly worse than even a single enemy kill (+5) plus its damage-dealt
 reward; the agent must earn to offset the clock. Kept small relative to
 every event term so it shapes pacing, not behavior, and cannot make death
 preferable (1200 * -0.01 = -12 >> -R_DEATH=100)."""
+
+R_WALL_PROXIMITY_PER_STEP: float = -0.02
+"""DECISION (2026-08-28 rebalance): ACTIVE shaping term. Small penalty while
+the player stands within WALL_PROXIMITY_MARGIN of any arena wall, ramping
+linearly from 0 at the margin edge to the full value AT the wall.
+Justification: eval of the tuned_v3 style-2 policy showed it retreating to
+walls and getting cornered -- walls leave enemies only ~90-180 degrees of
+approach, so wall-hugging is a rational hiding spot even for a policy that
+can fight. This term makes open-field positioning the cheaper strategy:
+parked at a wall for a full episode costs -24 (comparable to the time
+penalty), while the agent's measured combat skill (kills + damage-dealt
+rewards) more than offsets staying out. Scales with proximity rather than
+being a flat cliff so the agent is gently steered away, not teleported."""
+
+WALL_PROXIMITY_MARGIN: float = 120.0
+"""Distance (arena world units) from any wall at which
+R_WALL_PROXIMITY_PER_STEP starts ramping up. 120 units is ~1/8 of the
+arena's smaller dimension (680) -- deep enough that the agent has room to
+turn around, shallow enough that most of the arena stays penalty-free."""
 
 R_SHOOT_TOWARD_ENEMY: float = 0.06
 """DECISION (2026-08-28 rebalance): ACTIVE shaping term. Positive reward

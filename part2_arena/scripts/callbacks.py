@@ -35,6 +35,7 @@ REWARD_TERM_TAGS = [
     "reward_terms/approach_nearest_enemy",
     "reward_terms/shoot_while_no_target",
     "reward_terms/shoot_toward_enemy",
+    "reward_terms/wall_proximity",
     "reward_terms/time_penalty",
 ]
 REWARD_TERM_FIELDS = [tag.split("/", 1)[-1] for tag in REWARD_TERM_TAGS]

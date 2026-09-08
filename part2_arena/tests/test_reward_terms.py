@@ -18,7 +18,9 @@ from arena.rewards_config import (
     R_KILL_SPAWNER,
     R_SHOOT_TOWARD_ENEMY,
     R_TIME_STEP_PENALTY,
+    R_WALL_PROXIMITY_PER_STEP,
     SHOT_NO_TARGET_RADIUS,
+    WALL_PROXIMITY_MARGIN,
 )
 
 # Test-time stand-in for the approach reward's pre-rebalance value: the
@@ -101,6 +103,7 @@ def test_reward_breakdown_sums_to_total():
         + breakdown.approach_nearest_enemy
         + breakdown.shoot_while_no_target
         + breakdown.shoot_toward_enemy
+        + breakdown.wall_proximity
         + breakdown.time_penalty
     )
     assert breakdown.total == expected_total
@@ -139,6 +142,29 @@ def test_time_penalty_applies_unconditionally_every_step():
     assert 1200 * R_TIME_STEP_PENALTY > R_DEATH
 
 
+def test_wall_proximity_ramps_linearly_and_stops_outside_margin():
+    """R_WALL_PROXIMITY_PER_STEP (2026-08-28 rebalance) must be 0 outside
+    WALL_PROXIMITY_MARGIN, ramp linearly from 0 (at the margin) to the full
+    penalty (at the wall), and treat a missing wall_distance key as "no
+    penalty" (the safe default for old callers/tests).
+    """
+    # Far from any wall: no penalty.
+    far = compute_reward({"wall_distance": WALL_PROXIMITY_MARGIN + 1.0})
+    assert far.wall_proximity == 0.0
+
+    # Exactly at the wall: full penalty.
+    at_wall = compute_reward({"wall_distance": 0.0})
+    assert at_wall.wall_proximity == pytest.approx(R_WALL_PROXIMITY_PER_STEP)
+
+    # Halfway into the margin: exactly half the penalty (linear ramp).
+    half = compute_reward({"wall_distance": WALL_PROXIMITY_MARGIN / 2.0})
+    assert half.wall_proximity == pytest.approx(R_WALL_PROXIMITY_PER_STEP / 2.0)
+
+    # Missing key defaults to no penalty.
+    absent = compute_reward({})
+    assert absent.wall_proximity == 0.0
+
+
 def test_shoot_toward_enemy_reward_fires_on_aimed_shot():
     """R_SHOOT_TOWARD_ENEMY (2026-08-28 rebalance) must pay out exactly when
     step_events says the player fired at a nearby enemy, and not otherwise.
@@ -151,6 +177,32 @@ def test_shoot_toward_enemy_reward_fires_on_aimed_shot():
 
     absent = compute_reward({})
     assert absent.shoot_toward_enemy == 0.0
+
+
+def test_style2_shoot_preserves_velocity_and_noop_brakes():
+    """ENV-BACKED pin of the 2026-08-28 kiting change: in style 2, SHOOT
+    PRESERVES the player's velocity (glide while firing -- previously SHOOT
+    hard-stopped, which made open-field shooting a sitting duck and pushed
+    the policy onto walls as firing positions). NO_OP remains the deliberate
+    brake.
+    """
+    env = ArenaCoreEnv(control_style=2)
+    env.reset(seed=0)
+    p = env.state.player
+
+    # Simulate a MOVE_RIGHT step: velocity set to max speed along +x.
+    p.vx, p.vy = 6.0, 0.0
+    x_before = p.x
+    obs, reward, done, info = env.step(int(5))  # ControlStyle2.SHOOT
+    assert (p.vx, p.vy) == (6.0, 0.0)  # velocity preserved while firing
+    assert p.x > x_before  # and the player keeps gliding
+
+    # NO_OP brakes: velocity zeroes, position no longer advances.
+    obs, reward, done, info = env.step(int(0))  # ControlStyle2.NO_OP
+    assert (p.vx, p.vy) == (0.0, 0.0)
+    x_after_brake = p.x
+    obs, reward, done, info = env.step(int(0))
+    assert p.x == x_after_brake
 
 
 def test_approach_reward_disabled_by_decision():

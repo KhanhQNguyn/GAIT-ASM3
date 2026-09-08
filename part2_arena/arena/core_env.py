@@ -287,6 +287,15 @@ class ArenaCoreEnv:
         ev["shot_fired_with_no_target"] = self._shot_no_target_flag
         ev["shot_toward_enemy"] = self._shot_toward_enemy_flag
 
+        # Distance to the nearest wall, for the wall-proximity shaping term
+        # (see rewards_config.py R_WALL_PROXIMITY_PER_STEP).
+        ev["wall_distance"] = min(
+            float(p.x),
+            float(p.y),
+            self.arena_width - float(p.x),
+            self.arena_height - float(p.y),
+        )
+
         # 5. phase system
         if self.phase_manager.maybe_advance_phase(st.spawners):
             ev["phase_advanced"] = True
@@ -347,6 +356,7 @@ class ArenaCoreEnv:
             "cumulative_approach_reward": 0.0,
             "shot_fired_with_no_target": False,
             "shot_toward_enemy": False,
+            "wall_distance": float("inf"),
         }
 
     def _nearest_enemy_distance(self) -> float | None:
@@ -441,14 +451,21 @@ class ArenaCoreEnv:
                 p.vx, p.vy = max_speed, 0.0
             elif act is ControlStyle2.SHOOT:
                 self._try_shoot()
-                # keep moving while firing? no -- style 2 stops unless a move
-                # action is held. SHOOT does not move.
-                p.vx, p.vy = 0.0, 0.0
+                # 2026-08-28 design change: SHOOT no longer hard-stops the
+                # player -- velocity is PRESERVED, so the player glides in
+                # its last direction while firing (kiting). Previously SHOOT
+                # zeroed velocity, which made open-field shooting a sitting
+                # duck and taught the policy to use walls as firing positions
+                # (measured: 84-92% of style-2 eval steps spent hugging
+                # walls). NO_OP is still the deliberate brake. Matches
+                # style 1, where SHOOT also lets the ship coast.
             else:  # NO_OP / None -> snappy stop
                 p.vx, p.vy = 0.0, 0.0
 
-            # keep `orientation` aimed along the last non-zero move so SHOOT
-            # has a direction; leave it untouched on NO_OP / SHOOT.
+            # keep `orientation` aimed along the current velocity so SHOOT
+            # fires where the player is heading (also gives glide-shooting a
+            # coherent direction after the 2026-08-28 SHOOT-preserves-velocity
+            # change); leave it untouched on a hard stop (NO_OP).
             if (p.vx, p.vy) != (0.0, 0.0):
                 p.orientation = math.atan2(p.vy, p.vx)
 

@@ -44,7 +44,9 @@ from arena.rewards_config import (
     R_SHOOT_TOWARD_ENEMY,
     R_SHOOT_WHILE_NO_TARGET,
     R_TIME_STEP_PENALTY,
+    R_WALL_PROXIMITY_PER_STEP,
     SHOT_NO_TARGET_RADIUS,
+    WALL_PROXIMITY_MARGIN,
 )
 
 # Per-episode cap on R_APPROACH_NEAREST_ENEMY's cumulative contribution (see
@@ -70,6 +72,7 @@ class RewardBreakdown:
     approach_nearest_enemy: float = 0.0
     shoot_while_no_target: float = 0.0
     shoot_toward_enemy: float = 0.0
+    wall_proximity: float = 0.0
     time_penalty: float = 0.0
 
     @property
@@ -84,6 +87,7 @@ class RewardBreakdown:
             + self.approach_nearest_enemy
             + self.shoot_while_no_target
             + self.shoot_toward_enemy
+            + self.wall_proximity
             + self.time_penalty
         )
 
@@ -123,6 +127,10 @@ def compute_reward(
                                                        #   when none is in range --
                                                        #   the nearest active spawner),
                                                        #   within the aim window
+            "wall_distance":                   float,  # distance from the player to
+                                                       #   the nearest arena wall
+                                                       #   this step, >= 0 (drives the
+                                                       #   wall-proximity penalty)
         }
 
     Every key is always present. Missing keys are treated as 0 / False so a
@@ -161,12 +169,16 @@ def compute_reward(
                                   this term is always 0 -- machinery retained)
         shoot_while_no_target  = R_SHOOT_WHILE_NO_TARGET * shot_fired_with_no_target
         shoot_toward_enemy     = R_SHOOT_TOWARD_ENEMY     * shot_toward_enemy
+        wall_proximity         = R_WALL_PROXIMITY_PER_STEP
+                                 * max(0.0, 1 - wall_distance / WALL_PROXIMITY_MARGIN)
         time_penalty           = R_TIME_STEP_PENALTY     (unconditional, every step)
 
     `reward_overrides` (optional): a {constant_name: value} dict that
-    replaces a reward constant for this call only. Currently only
-    "R_DEATH" is honoured -- it exists so scripts/train.py --death-penalty
-    can run a real R_DEATH ablation (docs/KHANG.md C.3). This module still
+    replaces a reward constant for this call only. Currently "R_DEATH" and
+    "R_WALL_PROXIMITY_PER_STEP" are honoured -- they exist so scripts/train.py
+    --death-penalty / --wall-penalty can run real ablations
+    (docs/KHANG.md C.3; the wall override is how the style-2 run separates
+    wall-avoidance shaping from spawner discovery). This module still
     computes every reward number (Global Invariant #1); the override is a
     call-time substitution read inside this function, not reward math
     happening somewhere else. Unknown keys are ignored. Note that
@@ -177,6 +189,7 @@ def compute_reward(
     ev = step_events or {}
     overrides = reward_overrides or {}
     r_death = float(overrides.get("R_DEATH", R_DEATH))
+    r_wall = float(overrides.get("R_WALL_PROXIMITY_PER_STEP", R_WALL_PROXIMITY_PER_STEP))
     delta = float(ev.get("distance_delta_to_nearest_enemy", 0.0))
     nearest_enemy_distance = float(ev.get("nearest_enemy_distance", float("inf")))
     cumulative_approach_reward = float(ev.get("cumulative_approach_reward", 0.0))
@@ -201,5 +214,7 @@ def compute_reward(
         shoot_toward_enemy=(
             R_SHOOT_TOWARD_ENEMY * (1.0 if ev.get("shot_toward_enemy") else 0.0)
         ),
+        wall_proximity=r_wall
+        * max(0.0, 1.0 - float(ev.get("wall_distance", float("inf"))) / WALL_PROXIMITY_MARGIN),
         time_penalty=R_TIME_STEP_PENALTY,
     )
