@@ -50,12 +50,12 @@ def qtable_path(level_id: int, algorithm: str) -> pathlib.Path:
 
 def _state_to_jsonable(state) -> list:
     """Encode a GridWorldEnv state tuple
-    (agent_x, agent_y, apples_bitmask, has_key, chest_open, monsters_tuple)
-    into a JSON-safe list. monsters_tuple (a tuple of (x, y) pairs) becomes
-    a list of 2-element lists; everything else is already JSON-safe.
+    (agent_x, agent_y, apples_bitmask, has_key, chest_open, monster_dir,
+    monster_dist) into a JSON-safe list. monster_dir (a 2-tuple) becomes a
+    2-element list; everything else is already JSON-safe.
     """
-    ax, ay, bitmask, has_key, chest_open, monsters = state
-    return [ax, ay, bitmask, has_key, chest_open, [list(m) for m in monsters]]
+    ax, ay, bitmask, has_key, chest_open, monster_dir, monster_dist = state
+    return [ax, ay, bitmask, has_key, chest_open, list(monster_dir), monster_dist]
 
 
 def _state_from_jsonable(state_repr: list) -> tuple:
@@ -63,8 +63,8 @@ def _state_from_jsonable(state_repr: list) -> tuple:
     GridWorldEnv produces (see its class docstring) so the loaded table
     indexes identically to a live environment's states.
     """
-    ax, ay, bitmask, has_key, chest_open, monsters = state_repr
-    return (ax, ay, bitmask, bool(has_key), bool(chest_open), tuple(tuple(m) for m in monsters))
+    ax, ay, bitmask, has_key, chest_open, monster_dir, monster_dist = state_repr
+    return (ax, ay, bitmask, bool(has_key), bool(chest_open), tuple(monster_dir), monster_dist)
 
 
 def save_qtable(q_table: "QTable", path: str | pathlib.Path) -> None:

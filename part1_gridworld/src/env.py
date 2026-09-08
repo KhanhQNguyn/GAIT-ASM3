@@ -8,22 +8,22 @@ schema) and exposes a small, explicit step/reset API used by trainer.py.
 Known limitations / design notes
 ---------------------------------
 State representation chosen:
-    (agent_x, agent_y, apples_bitmask, has_key, chest_open, monsters_tuple)
+    (agent_x, agent_y, apples_bitmask, has_key, chest_open, monster_dir,
+     monster_dist)
 
 - apples_bitmask is an int where bit i (0-indexed) = 1 means apple i (in
   level JSON order) is still uncollected. All-zeros => all collected.
   This is compact (O(1) hash, O(n) bits vs frozenset overhead) and fully
   hashable for a dict-keyed Q-table.
 
-- monsters_tuple is a tuple of (x, y) pairs, sorted by (x, y) so that the
-  same set of monster positions always hashes to the same value regardless
-  of iteration order.
-
-- For level4/level6 (2 monsters, open 10x10 grid), this state space is
-  large (~10*10 * 2^3 * 2 * 2 * 10*10 per monster) but bounded and still
-  convergeable given the per-level episode overrides in training_config.json.
-  Do NOT remove monsters from the tuple; that makes the env non-Markov and
-  breaks Task 4's "learn to avoid monsters" requirement.
+- monster_dir / monster_dist summarise the NEAREST monster relative to the
+  agent: monster_dir = (sign(dx), sign(dy)) in {-1,0,1}^2, monster_dist = a
+  Manhattan-distance bucket (1, 2, or 3 meaning 3+); both are (0, 0) / 0 on
+  levels with no monsters. Absolute monster coordinates were dropped on
+  purpose -- they blow the level4-6 state space into the millions, far past
+  what the training budget can cover, so the agent never learned avoidance.
+  A relative nearest-monster bearing is a partial view but still supports a
+  reactive avoidance policy (and mirrors Part II's nearest-enemy observation).
 """
 
 from __future__ import annotations
@@ -88,7 +88,8 @@ class GridWorldEnv:
     tuple, and algorithms.py's QTable / save_qtable / load_qtable depend on
     it being hashable and stable):
 
-        (agent_x, agent_y, apples_bitmask, has_key, chest_open, monsters)
+        (agent_x, agent_y, apples_bitmask, has_key, chest_open, monster_dir,
+         monster_dist)
 
       - agent_x, agent_y : int tile coords.
       - apples_bitmask   : int; bit i (0-indexed) SET means apple i -- in the
@@ -99,16 +100,16 @@ class GridWorldEnv:
                            chest also flips has_key back to False -- the key
                            is consumed -- but the state still carries has_key
                            so pre-open states stay distinct.)
-      - monsters         : tuple(sorted((mx, my) for each monster)); () when
-                           the level has no monsters. Sorted so an identical
-                           set of monster positions always hashes equal.
+      - monster_dir      : (sign(dx), sign(dy)) to the NEAREST monster, each
+                           in {-1, 0, 1}; (0, 0) when the level has no monsters.
+      - monster_dist     : Manhattan-distance bucket to that nearest monster
+                           -- 1, 2, or 3 (meaning 3+); 0 when no monsters.
 
-    Feasibility note: for level4/level6 (2 monsters, open grid) this state
-    space is large. The lever, since level layouts are fixed, is the
-    per-level `episodes` override in config/training_config.json -- raise it
-    if the training curve has not plateaued. Do NOT drop `monsters` from the
-    tuple to shrink the space: that makes the environment non-Markov and
-    breaks Task 4's "learn to avoid monsters" requirement.
+    Only the nearest monster is encoded, and only its relative bearing plus a
+    coarse distance -- not absolute coordinates. This keeps the level4-6 state
+    space small enough to actually learn monster avoidance in the training
+    budget; it is a partial view but sufficient for a reactive avoidance
+    policy (cf. Part II's nearest-enemy observation).
 
     Mechanics this class must enforce EXACTLY per config/schema.md, and must
     NOT be altered by any helper function elsewhere in the codebase:
@@ -298,7 +299,8 @@ class GridWorldEnv:
 
         Returns:
             The initial state tuple:
-            (agent_x, agent_y, apples_bitmask, has_key, chest_open, monsters_tuple)
+            (agent_x, agent_y, apples_bitmask, has_key, chest_open, monster_dir,
+             monster_dist)
         """
         self._agent_pos = self._agent_start
         # All apples present: bits 0..N-1 all set
@@ -313,18 +315,33 @@ class GridWorldEnv:
         self._done = False
         return self._get_state()
 
+    def _nearest_monster_features(self) -> tuple[tuple[int, int], int]:
+        """Relative bearing (sign of dx, dy) and Manhattan-distance bucket
+        (1, 2, or 3 meaning 3+) to the nearest monster; ((0, 0), 0) when the
+        level has no monsters."""
+        if not self._monsters:
+            return (0, 0), 0
+        ax, ay = self._agent_pos
+        mx, my = min(
+            (m.position for m in self._monsters),
+            key=lambda p: (abs(p[0] - ax) + abs(p[1] - ay), p[0], p[1]),
+        )
+        dx, dy = mx - ax, my - ay
+        dist = abs(dx) + abs(dy)
+        bucket = 1 if dist == 1 else (2 if dist == 2 else 3)
+        return ((dx > 0) - (dx < 0), (dy > 0) - (dy < 0)), bucket
+
     def _get_state(self) -> tuple:
         """Return the current hashable state tuple."""
-        monsters_tuple = tuple(
-            sorted(m.position for m in self._monsters)
-        )
+        monster_dir, monster_dist = self._nearest_monster_features()
         return (
             self._agent_pos[0],
             self._agent_pos[1],
             self._apples_bitmask,
             self._has_key,
             self._chest_open,
-            monsters_tuple,
+            monster_dir,
+            monster_dist,
         )
 
     def _is_blocked(self, x: int, y: int) -> bool:

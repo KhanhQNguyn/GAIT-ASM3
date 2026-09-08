@@ -242,3 +242,65 @@ def test_episode_ends_on_death_even_with_rewards_remaining(tmp_path):
     result = env.step(Action.RIGHT)  # step into fire
     assert result.done, "Death by fire must end the episode"
     assert env._apples_bitmask != 0, "Apples should still be uncollected"
+
+
+# ---------------------------------------------------------------------------
+# State representation: nearest-monster bearing + distance bucket
+# ---------------------------------------------------------------------------
+
+def test_state_has_no_monster_features_when_level_has_no_monsters(tmp_path):
+    """Levels 0-3 have no monsters: the two monster slots must be the
+    constant ((0, 0), 0) so the state space (and learning) is unchanged."""
+    env = GridWorldEnv(_make_level(tmp_path))  # base fixture: monsters=[]
+    state = env.reset()
+    assert len(state) == 7
+    assert state[5] == (0, 0)
+    assert state[6] == 0
+
+
+def test_state_encodes_nearest_monster_bearing_and_distance_bucket(tmp_path):
+    """monster_dir is (sign(dx), sign(dy)); monster_dist buckets Manhattan
+    distance into 1 / 2 / 3(+)."""
+    cases = [
+        ([1, 0], (1, 0), 1),   # directly right, adjacent
+        ([2, 0], (1, 0), 2),   # directly right, 2 away
+        ([3, 3], (1, 1), 3),   # down-right, 6 away -> "3+" bucket
+        ([0, 2], (0, 1), 2),   # directly below
+    ]
+    for start, expected_dir, expected_bucket in cases:
+        env = GridWorldEnv(
+            _make_level(tmp_path, monsters=[{"start": start, "move_prob": 0.0}])
+        )
+        state = env.reset()
+        assert state[5] == expected_dir, f"dir wrong for monster at {start}"
+        assert state[6] == expected_bucket, f"bucket wrong for monster at {start}"
+
+
+def test_only_the_nearest_monster_is_encoded(tmp_path):
+    """With several monsters the state reflects the closest one by Manhattan
+    distance (deterministic tie-break by (dist, x, y))."""
+    env = GridWorldEnv(
+        _make_level(
+            tmp_path,
+            monsters=[
+                {"start": [1, 0], "move_prob": 0.0},   # distance 1 -- nearest
+                {"start": [3, 3], "move_prob": 0.0},   # distance 6
+            ],
+        )
+    )
+    state = env.reset()
+    assert state[5] == (1, 0)
+    assert state[6] == 1
+
+
+def test_monster_features_track_relative_position_after_a_move(tmp_path):
+    """As the agent moves, the encoded bearing/distance follows the real
+    relative geometry -- this is what lets the agent learn avoidance."""
+    env = GridWorldEnv(
+        _make_level(tmp_path, monsters=[{"start": [2, 0], "move_prob": 0.0}])
+    )
+    s0 = env.reset()
+    assert (s0[5], s0[6]) == ((1, 0), 2)
+    result = env.step(Action.RIGHT)  # agent (0,0)->(1,0); monster stays at (2,0)
+    assert (result.state[5], result.state[6]) == ((1, 0), 1)
+    assert not result.done
