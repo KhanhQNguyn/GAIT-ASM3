@@ -15,13 +15,15 @@ VALUES in rewards_config.py and tests/test_reward_terms.py.
 
 Final reward-shaping decision: see rewards_config.py's per-constant
 docstrings (dated team decision) -- do not reintroduce unresolved language
-here. Both optional shaping terms are RATIFIED as-is:
-R_APPROACH_NEAREST_ENEMY stays at 0.01 (gated outside engage range and
-capped per-episode at APPROACH_REWARD_EPISODE_CAP, so it can never
-out-earn a single kill) and R_SHOOT_WHILE_NO_TARGET stays disabled at 0.0.
-Member C's alternative recommendation (drop both to 0.0, per
-docs/message.txt) was considered and not adopted; the disagreement is
-recorded in docs/DECISIONS.md rather than left open in this docstring.
+here. RATIFIED as of the 2026-08-28 rebalance: R_APPROACH_NEAREST_ENEMY
+DISABLED at 0.0 (machinery retained + tested) and R_SHOOT_WHILE_NO_TARGET
+disabled at 0.0, replaced by two ACTIVE shaping terms --
+R_DAMAGE_DEALT_PER_HP (dense per-hit signal; the fix for the degenerate
+corner-camping policies that never learned to shoot) and
+R_TIME_STEP_PENALTY (makes passivity costly). Member C's original
+recommendation (drop approach to 0.0) was ultimately adopted by this
+rebalance; the earlier disagreement history is still recorded in
+docs/DECISIONS.md.
 R_DEATH is decided too -- KEPT at -100.0; see rewards_config.py::R_DEATH's
 docstring for the ablation evidence and rationale.
 -------------------------------------------------------------------------
@@ -33,12 +35,15 @@ from dataclasses import dataclass
 
 from arena.rewards_config import (
     R_APPROACH_NEAREST_ENEMY,
+    R_DAMAGE_DEALT_PER_HP,
     R_DAMAGE_TAKEN_PER_HP,
     R_DEATH,
     R_KILL_ENEMY,
     R_KILL_SPAWNER,
     R_PHASE_PROGRESS,
+    R_SHOOT_TOWARD_ENEMY,
     R_SHOOT_WHILE_NO_TARGET,
+    R_TIME_STEP_PENALTY,
     SHOT_NO_TARGET_RADIUS,
 )
 
@@ -60,9 +65,12 @@ class RewardBreakdown:
     kill_spawner: float = 0.0
     phase_progress: float = 0.0
     damage_taken: float = 0.0
+    damage_dealt: float = 0.0
     death: float = 0.0
     approach_nearest_enemy: float = 0.0
     shoot_while_no_target: float = 0.0
+    shoot_toward_enemy: float = 0.0
+    time_penalty: float = 0.0
 
     @property
     def total(self) -> float:
@@ -71,9 +79,12 @@ class RewardBreakdown:
             + self.kill_spawner
             + self.phase_progress
             + self.damage_taken
+            + self.damage_dealt
             + self.death
             + self.approach_nearest_enemy
             + self.shoot_while_no_target
+            + self.shoot_toward_enemy
+            + self.time_penalty
         )
 
 
@@ -93,6 +104,8 @@ def compute_reward(
             "spawners_killed":                 int,    # spawners destroyed this step
             "phase_advanced":                  bool,   # phase incremented this step
             "damage_taken":                    float,  # player HP lost this step, >= 0
+            "damage_dealt":                    float,  # enemy HP removed by player
+                                                       #   projectiles this step, >= 0
             "died":                            bool,   # player HP reached 0 this step
             "distance_delta_to_nearest_enemy": float,  # signed; < 0 means the player
                                                        #   got closer to the nearest
@@ -103,6 +116,13 @@ def compute_reward(
                                                        #   farther than
                                                        #   SHOT_NO_TARGET_RADIUS (or
                                                        #   no enemy existed)
+            "shot_toward_enemy":               bool,   # player fired this step at its
+                                                       #   current objective (nearest
+                                                       #   enemy within
+                                                       #   SHOT_NO_TARGET_RADIUS, or --
+                                                       #   when none is in range --
+                                                       #   the nearest active spawner),
+                                                       #   within the aim window
         }
 
     Every key is always present. Missing keys are treated as 0 / False so a
@@ -129,6 +149,7 @@ def compute_reward(
         kill_spawner           = R_KILL_SPAWNER          * spawners_killed
         phase_progress         = R_PHASE_PROGRESS        * phase_advanced
         damage_taken            = R_DAMAGE_TAKEN_PER_HP  * damage_taken  (already negative)
+        damage_dealt            = R_DAMAGE_DEALT_PER_HP  * damage_dealt
         death                  = R_DEATH                 * died
         approach_nearest_enemy = R_APPROACH_NEAREST_ENEMY * max(-distance_delta, 0),
                                   gated to only pay out while
@@ -136,7 +157,11 @@ def compute_reward(
                                   and clamped so cumulative_approach_reward +
                                   this step's amount never exceeds
                                   APPROACH_REWARD_EPISODE_CAP
+                                  (currently DISABLED: the constant is 0.0, so
+                                  this term is always 0 -- machinery retained)
         shoot_while_no_target  = R_SHOOT_WHILE_NO_TARGET * shot_fired_with_no_target
+        shoot_toward_enemy     = R_SHOOT_TOWARD_ENEMY     * shot_toward_enemy
+        time_penalty           = R_TIME_STEP_PENALTY     (unconditional, every step)
 
     `reward_overrides` (optional): a {constant_name: value} dict that
     replaces a reward constant for this call only. Currently only
@@ -167,9 +192,14 @@ def compute_reward(
         kill_spawner=R_KILL_SPAWNER * int(ev.get("spawners_killed", 0)),
         phase_progress=R_PHASE_PROGRESS * (1.0 if ev.get("phase_advanced") else 0.0),
         damage_taken=R_DAMAGE_TAKEN_PER_HP * float(ev.get("damage_taken", 0.0)),
+        damage_dealt=R_DAMAGE_DEALT_PER_HP * float(ev.get("damage_dealt", 0.0)),
         death=r_death * (1.0 if ev.get("died") else 0.0),
         approach_nearest_enemy=approach_nearest_enemy,
         shoot_while_no_target=(
             R_SHOOT_WHILE_NO_TARGET * (1.0 if ev.get("shot_fired_with_no_target") else 0.0)
         ),
+        shoot_toward_enemy=(
+            R_SHOOT_TOWARD_ENEMY * (1.0 if ev.get("shot_toward_enemy") else 0.0)
+        ),
+        time_penalty=R_TIME_STEP_PENALTY,
     )

@@ -5,9 +5,29 @@ root) imports this module directly to keep the report's reward table in
 sync with the code.
 
 Capped at <= 8 terms per the architecture principle: 5 required by the spec
-+ up to 2 optional shaping terms, each justified below. If you add a new
-term, you must also add its one-line justification here (rubric checks for
-this) and log it separately to TensorBoard in rewards.py.
++ up to 2 ACTIVE optional shaping terms, each justified below. The 2-slot
+guideline is a self-imposed preference, not a rubric rule -- the rubric only
+demands that optional shaping be justified -- so the 2026-08-28 rebalance
+intentionally takes 3 active slots (R_DAMAGE_DEALT_PER_HP, R_TIME_STEP_PENALTY,
+R_SHOOT_TOWARD_ENEMY) because the diagnosis showed reward at the HIT level was
+still too sparse to train aiming. If you add a new term, you must also add its
+one-line justification here (rubric checks for this) and log it separately to
+TensorBoard in rewards.py.
+
+REBALANCE (2026-08-28, team decision after diagnosing degenerate policies):
+evaluation of the tuned_v1/v2 models showed every policy collapsing to
+"camp a corner and soak contact damage" (0 enemy kills in deterministic
+rollouts). Root causes, each fixed here or in config/arena.json:
+  - fighting was net-negative before aim skill developed (a contact trade
+    costs more reward than a kill earns, and a kill needs 2 landed hits);
+  - hiding was free (no per-step cost);
+  - enemies were far slower than the player, so neither fighting nor
+    fleeing was ever forced.
+The two ACTIVE shaping terms are now R_DAMAGE_DEALT_PER_HP (dense signal
+for landing hits) and R_TIME_STEP_PENALTY (makes passivity costly).
+R_APPROACH_NEAREST_ENEMY and R_SHOOT_WHILE_NO_TARGET are retained at 0.0
+(inert, documented decisions) so the report's reward table stays stable
+and the gating/cap machinery stays tested.
 """
 
 # --- Required by the spec ---
@@ -57,31 +77,64 @@ kills x R_KILL_ENEMY=5.0 + 1 spawner kill x R_KILL_SPAWNER=20.0 = +45.0
 must still net negative after death) -- -30 would fail that test outright
 regardless of the ablation's outcome."""
 
-# --- Optional shaping terms (<= 2, must be justified) ---
+# --- Optional shaping terms (<= 2 ACTIVE; inert 0.0 terms retained below) ---
 
-R_APPROACH_NEAREST_ENEMY: float = 0.01
-"""DECISION (Member D): KEPT, at 0.01. Small per-step shaping reward for
-reducing distance to the nearest enemy, intended to speed up early training
-before the agent has discovered that engaging enemies is valuable at all.
+R_DAMAGE_DEALT_PER_HP: float = 0.05
+"""DECISION (2026-08-28 rebalance): NEW ACTIVE shaping term. Positive reward
+per HP of damage player projectiles deal to enemies, before any kill lands.
+Justification: with R_KILL_ENEMY alone, combat is unrewarded until a whole
+kill lands -- and an enemy needs 2 hits (30 HP vs 25 damage), so early
+training gets essentially no gradient toward shooting at all. That is the
+primary reason every tuned_v1/v2 policy collapsed to corner-camping with 0
+enemy kills (see the module docstring's rebalance note). A per-HP term
+gives dense signal on every landed hit (+1.25 per 25-damage hit), keeps
+the kill bonus meaningful on top (5.0 + 1.5 = 6.5 for a full 30-HP enemy),
+and cannot be farmed by passivity: HP only leaves an enemy via player
+projectiles. Not counted as one of the "risky" shaping terms because it
+shapes toward the spec's own required behavior (destroying enemies)."""
 
-REQUIRED implementation shape (not optional -- an ungated flat 0.01/step
-over a 1200-step episode is +12, which rivals R_KILL_ENEMY=5 and lets the
-agent farm this term by loitering, see docs/AUDIT_main.md 5.8). All three
-are implemented in rewards.py::compute_reward:
-  - reward only the per-step DECREASE in distance to the nearest enemy
-    (distance_delta < 0), scaled by this constant -- not mere proximity;
-  - apply it ONLY while the nearest enemy is outside weapon/engage range
-    (reuses SHOT_NO_TARGET_RADIUS below as the engage-range threshold --
-    the same distance already used to decide "close enough to be a valid
-    shooting target" is exactly "close enough that the agent should be
-    shooting, not still being paid to approach");
-  - cap the cumulative per-episode contribution of this term at
-    R_KILL_ENEMY, via the optional step_events["cumulative_approach_reward"]
-    (the running per-episode total BEFORE this step, tracked by the
-    caller) -- see compute_reward's docstring for the exact clamp.
+R_TIME_STEP_PENALTY: float = -0.01
+"""DECISION (2026-08-28 rebalance): NEW ACTIVE shaping term. Small fixed
+cost per step survived, applied unconditionally every step. Justification:
+with no per-step cost, "hide in a corner and soak contact damage" is a
+free local optimum -- the agent loses nothing by doing nothing for 1200
+steps, which is exactly what the tuned_v1/v2 policies converged to. At
+-0.01/step an idle 1200-step episode costs -12, so doing nothing is now
+strictly worse than even a single enemy kill (+5) plus its damage-dealt
+reward; the agent must earn to offset the clock. Kept small relative to
+every event term so it shapes pacing, not behavior, and cannot make death
+preferable (1200 * -0.01 = -12 >> -R_DEATH=100)."""
 
-Document the final decision (kept/removed/tuned) in
-report/report_template.md section 3."""
+R_SHOOT_TOWARD_ENEMY: float = 0.06
+"""DECISION (2026-08-28 rebalance): ACTIVE shaping term. Positive reward
+each time the player fires a projectile roughly toward its CURRENT
+OBJECTIVE: (a) the nearest enemy within SHOT_NO_TARGET_RADIUS when one
+exists, or (b) -- when no enemy is in range -- the nearest active spawner
+(no distance gate; spawners are static, and aiming at one is how the agent
+discovers spawner kills). Both cases use the same ~45 degree alignment
+window. Justification: training curves showed the agent was UNLEARNING
+shooting -- reward only lands on a HIT, and hits were too rare early to
+provide a gradient, so PPO down-weighted every shoot/approach action. This
+term pays out at the AIM level (aim +0.06, hit +1.25, kill +5.0), and the
+spawner fallback exists because ZERO spawner kills ever occurred across
+all tuning runs -- R_KILL_SPAWNER (+20) and R_PHASE_PROGRESS (+50) were
+never sampled, so the biggest reward gradient in the game was unreachable
+without aim-level signal. It cannot be farmed: it requires the shot to
+actually point at a nearby enemy or at the spawner objective."""
+
+R_APPROACH_NEAREST_ENEMY: float = 0.0
+"""DECISION (2026-08-28 rebalance): DISABLED, set to 0.0 (was 0.01,
+gated + capped). Rationale: the term paid the agent for CLOSING distance
+to the nearest enemy -- but enemies already seek the player, so distance
+closes itself; in practice the term could be farmed without fighting, and
+the diagnosis of the degenerate corner-camping policies showed approach
+shaping was irrelevant next to the real problem (no dense combat reward,
+no cost to passivity), now addressed by R_DAMAGE_DEALT_PER_HP and
+R_TIME_STEP_PENALTY. The gating/cap implementation machinery in
+rewards.py is RETAINED and still tested (tests monkeypatch the constant)
+so re-enabling or retuning later is a one-line change. Prior team decision
+history (Member D kept vs Member C drop) is recorded in
+docs/DECISIONS.md; this rebalance supersedes it. Update report section 3."""
 
 R_SHOOT_WHILE_NO_TARGET: float = 0.0
 """DECISION (Member D): KEPT DISABLED, at 0.0. The spec does not give the
@@ -104,14 +157,13 @@ Derived (not a placeholder) from the real arena dimensions in core_env.py:
 ARENA_WIDTH=960, ARENA_HEIGHT=680 -> diagonal = sqrt(960**2 + 680**2)
 ~= 1176.4 -> 0.3 * diagonal ~= 352.9, rounded to 350.0 -- roughly 30% of
 the diagonal, deliberately tight so a shot only counts as "on target" when
-an enemy is fairly close. Also now doing double duty as
-R_APPROACH_NEAREST_ENEMY's engage-range gate (see above): both uses share
-the same underlying question ("is the nearest enemy close enough that the
-agent should be shooting, not just approaching or spraying"), so one
-tuned distance serves both rather than drifting into two similar
-constants. R_SHOOT_WHILE_NO_TARGET itself is currently disabled (see its
-decision above), so this value's shot-penalty role is inert for now, but
-its distance/gating role for R_APPROACH_NEAREST_ENEMY is active. TODO:
-tune against training behaviour (and against the real weapon/projectile
-range in config/arena.json) and record the final value in report
-section 3/4."""
+an enemy is fairly close.
+
+Formerly also served as R_APPROACH_NEAREST_ENEMY's engage-range gate;
+since that term is now disabled (see its decision above), this constant's
+only remaining role is the (itself disabled) shot-penalty term, so it is
+currently inert end to end. RETAINED because both consumers are one-line
+re-enables away from needing it, and tests still exercise the machinery.
+TODO: tune against the real weapon/projectile range in config/arena.json
+if either consumer term is ever re-enabled, and record the final value in
+report section 3/4."""

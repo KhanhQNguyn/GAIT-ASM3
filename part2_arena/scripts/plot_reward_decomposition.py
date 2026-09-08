@@ -37,9 +37,12 @@ REWARD_TERM_TAGS = [
     "reward_terms/kill_spawner",
     "reward_terms/phase_progress",
     "reward_terms/damage_taken",
+    "reward_terms/damage_dealt",
     "reward_terms/death",
     "reward_terms/approach_nearest_enemy",
     "reward_terms/shoot_while_no_target",
+    "reward_terms/shoot_toward_enemy",
+    "reward_terms/time_penalty",
 ]
 
 

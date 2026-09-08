@@ -32,15 +32,22 @@ class Player:
 
 @dataclass
 class Enemy:
-    """A single enemy unit that navigates toward the player."""
+    """A single enemy unit that navigates toward the player.
+
+    PERSISTS on touching the player (non-kamikaze, 2026-08-28 design change):
+    it deals contact damage once, then enters a damage cooldown
+    (contact_damage_cooldown steps) before it can damage the player again,
+    and keeps chasing. Shooting is therefore the only way to reduce incoming
+    threat -- see core_env._resolve_collisions.
+    """
 
     x: float
     y: float
     health: float
     max_health: float
     speed: float
-
-    # TODO: add navigation/AI state fields as needed (e.g. target, behavior).
+    damage_cooldown: int = 0
+    """Steps until this enemy can deal contact damage again (0 = ready)."""
 
 
 @dataclass

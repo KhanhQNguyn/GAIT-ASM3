@@ -5,20 +5,34 @@ math outside rewards.py" architecture principle.
 
 import pytest
 
+import arena.rewards as rewards_module
+from arena.core_env import ArenaCoreEnv
+from arena.entities import Enemy
 from arena.rewards import APPROACH_REWARD_EPISODE_CAP, compute_reward
 from arena.rewards_config import (
     R_APPROACH_NEAREST_ENEMY,
+    R_DAMAGE_DEALT_PER_HP,
+    R_DAMAGE_TAKEN_PER_HP,
     R_DEATH,
     R_KILL_ENEMY,
     R_KILL_SPAWNER,
+    R_SHOOT_TOWARD_ENEMY,
+    R_TIME_STEP_PENALTY,
     SHOT_NO_TARGET_RADIUS,
 )
+
+# Test-time stand-in for the approach reward's pre-rebalance value: the
+# shipped constant is 0.0 (disabled, see the decision test below), but the
+# gating/cap MACHINERY in compute_reward is still live and must stay
+# correct for a one-line re-enable. Monkeypatching the rewards module's
+# binding works because compute_reward reads the module global at call time.
+_ACTIVE_APPROACH_FOR_MACHINERY_TESTS = 0.01
 
 
 def test_kill_enemy_reward_fires_independently():
     """A step_events dict with only enemies_killed=1 set must produce a
     RewardBreakdown with kill_enemy == R_KILL_ENEMY and every other field
-    == 0.
+    == 0 (except the unconditional per-step time penalty).
     """
     breakdown = compute_reward({"enemies_killed": 1})
 
@@ -26,9 +40,11 @@ def test_kill_enemy_reward_fires_independently():
     assert breakdown.kill_spawner == 0.0
     assert breakdown.phase_progress == 0.0
     assert breakdown.damage_taken == 0.0
+    assert breakdown.damage_dealt == 0.0
     assert breakdown.death == 0.0
     assert breakdown.approach_nearest_enemy == 0.0
     assert breakdown.shoot_while_no_target == 0.0
+    assert breakdown.time_penalty == R_TIME_STEP_PENALTY
 
 
 def test_kill_spawner_reward_exceeds_kill_enemy_reward():
@@ -68,6 +84,7 @@ def test_reward_breakdown_sums_to_total():
             "spawners_killed": 1,
             "phase_advanced": True,
             "damage_taken": 10.0,
+            "damage_dealt": 25.0,
             "died": False,
             "distance_delta_to_nearest_enemy": -5.0,
             "shot_fired_with_no_target": True,
@@ -79,47 +96,119 @@ def test_reward_breakdown_sums_to_total():
         + breakdown.kill_spawner
         + breakdown.phase_progress
         + breakdown.damage_taken
+        + breakdown.damage_dealt
         + breakdown.death
         + breakdown.approach_nearest_enemy
         + breakdown.shoot_while_no_target
+        + breakdown.shoot_toward_enemy
+        + breakdown.time_penalty
     )
     assert breakdown.total == expected_total
 
 
-def test_approach_reward_gated_off_within_engage_range():
-    """R_APPROACH_NEAREST_ENEMY must NOT pay out once the nearest enemy is
-    within engage/weapon range (per rewards_config.py's REQUIRED
-    implementation shape) -- at that point the agent should be shooting,
-    not still collecting a "getting closer" shaping bonus.
+def test_damage_dealt_reward_scales_with_hp_removed():
+    """R_DAMAGE_DEALT_PER_HP (2026-08-28 rebalance) must pay out per HP of
+    enemy damage dealt by player projectiles, BEFORE any kill: the dense
+    signal that gives early training a gradient toward shooting at all.
     """
+    breakdown = compute_reward({"damage_dealt": 25.0})
+    assert breakdown.damage_dealt == pytest.approx(25.0 * R_DAMAGE_DEALT_PER_HP)
+
+    # A full 30-HP enemy (two 25-damage hits, second one clamped by
+    # min(damage, health) in core_env) earns 30 * R_DAMAGE_DEALT_PER_HP of
+    # this term plus R_KILL_ENEMY for the kill itself.
+    full_enemy = compute_reward({"damage_dealt": 30.0, "enemies_killed": 1})
+    assert full_enemy.damage_dealt == pytest.approx(30.0 * R_DAMAGE_DEALT_PER_HP)
+    assert full_enemy.kill_enemy == R_KILL_ENEMY
+
+
+def test_time_penalty_applies_unconditionally_every_step():
+    """R_TIME_STEP_PENALTY (2026-08-28 rebalance) must be applied on EVERY
+    step with no event required -- this is what makes "hide in a corner and
+    do nothing for 1200 steps" cost -12 instead of being free.
+    """
+    empty = compute_reward({})
+    assert empty.time_penalty == R_TIME_STEP_PENALTY
+    assert empty.total == R_TIME_STEP_PENALTY  # no other term fires
+
+    busy = compute_reward({"enemies_killed": 1, "phase_advanced": True, "died": True})
+    assert busy.time_penalty == R_TIME_STEP_PENALTY
+
+    # Anti-starvation sanity: an idle full-length episode (-12) must still be
+    # far better than death (-100), so the penalty shapes pacing, not risk.
+    assert 1200 * R_TIME_STEP_PENALTY > R_DEATH
+
+
+def test_shoot_toward_enemy_reward_fires_on_aimed_shot():
+    """R_SHOOT_TOWARD_ENEMY (2026-08-28 rebalance) must pay out exactly when
+    step_events says the player fired at a nearby enemy, and not otherwise.
+    """
+    aimed = compute_reward({"shot_toward_enemy": True})
+    assert aimed.shoot_toward_enemy == R_SHOOT_TOWARD_ENEMY
+
+    not_aimed = compute_reward({"shot_toward_enemy": False})
+    assert not_aimed.shoot_toward_enemy == 0.0
+
+    absent = compute_reward({})
+    assert absent.shoot_toward_enemy == 0.0
+
+
+def test_approach_reward_disabled_by_decision():
+    """DECISION (2026-08-28 rebalance): R_APPROACH_NEAREST_ENEMY is DISABLED
+    at 0.0 -- enemies already seek the player, so paying for closing
+    distance rewarded passivity. This test pins the decision so a silent
+    revert is caught; re-enabling requires updating rewards_config.py's
+    docstring AND this test deliberately.
+    """
+    assert R_APPROACH_NEAREST_ENEMY == 0.0
     breakdown = compute_reward(
         {
-            "distance_delta_to_nearest_enemy": -5.0,
-            "nearest_enemy_distance": SHOT_NO_TARGET_RADIUS - 1.0,
+            "distance_delta_to_nearest_enemy": -100.0,
+            "nearest_enemy_distance": SHOT_NO_TARGET_RADIUS + 1.0,
         }
     )
     assert breakdown.approach_nearest_enemy == 0.0
 
 
-def test_approach_reward_pays_out_when_closing_distance_outside_engage_range():
-    """Sanity check the normal, ungated path: closing distance while still
-    outside engage range pays the expected raw amount.
+def test_approach_reward_machinery_still_gates_within_engage_range(monkeypatch):
+    """The gating/cap MACHINERY for the (disabled) approach term must stay
+    correct so a future re-enable is a one-line constant change. Patch the
+    constant back to its pre-rebalance value for machinery verification.
     """
-    breakdown = compute_reward(
+    monkeypatch.setattr(
+        rewards_module, "R_APPROACH_NEAREST_ENEMY", _ACTIVE_APPROACH_FOR_MACHINERY_TESTS
+    )
+
+    # Within engage range: gated off entirely.
+    gated = compute_reward(
+        {
+            "distance_delta_to_nearest_enemy": -5.0,
+            "nearest_enemy_distance": SHOT_NO_TARGET_RADIUS - 1.0,
+        }
+    )
+    assert gated.approach_nearest_enemy == 0.0
+
+    # Outside engage range: pays -delta * constant.
+    paying = compute_reward(
         {
             "distance_delta_to_nearest_enemy": -5.0,
             "nearest_enemy_distance": SHOT_NO_TARGET_RADIUS + 1.0,
         }
     )
-    assert breakdown.approach_nearest_enemy == 5.0 * R_APPROACH_NEAREST_ENEMY
+    assert paying.approach_nearest_enemy == pytest.approx(
+        5.0 * _ACTIVE_APPROACH_FOR_MACHINERY_TESTS
+    )
 
 
-def test_approach_reward_never_exceeds_per_episode_cap():
-    """R_APPROACH_NEAREST_ENEMY's cumulative per-episode contribution must
-    be clamped at APPROACH_REWARD_EPISODE_CAP even when the caller reports
-    a large per-step closing distance, and even when most of the budget is
-    already spent (cumulative_approach_reward close to the cap).
+def test_approach_reward_machinery_never_exceeds_per_episode_cap(monkeypatch):
+    """The cumulative per-episode clamp (APPROACH_REWARD_EPISODE_CAP) must
+    still bind when the term is active (patched on) even with a huge
+    per-step closing distance and a nearly-spent budget.
     """
+    monkeypatch.setattr(
+        rewards_module, "R_APPROACH_NEAREST_ENEMY", _ACTIVE_APPROACH_FOR_MACHINERY_TESTS
+    )
+
     breakdown = compute_reward(
         {
             "distance_delta_to_nearest_enemy": -1000.0,
@@ -137,3 +226,42 @@ def test_approach_reward_never_exceeds_per_episode_cap():
         }
     )
     assert breakdown_already_capped.approach_nearest_enemy == 0.0
+
+
+def test_contact_enemy_persists_cooldowns_and_gives_no_kill_credit():
+    """ENV-BACKED pin of the NON-KAMIKAZE design rule (2026-08-28): an enemy
+    touching the player deals contact damage ONCE, enters a per-enemy damage
+    cooldown, SURVIVES, and awards NO R_KILL_ENEMY (kills are projectile-
+    only). While in cooldown, further contact deals no damage. Shooting is
+    the only way to remove enemies -- body-blocking can never farm kills,
+    and tanking repeated contact now kills the player.
+    """
+    env = ArenaCoreEnv(control_style=2)
+    env.reset(seed=0)
+    p = env.state.player
+    contact_damage = float(env._ecfg["contact_damage"])
+    max_health = float(env._pcfg["max_health"])
+    enemy = Enemy(x=p.x, y=p.y, health=30.0, max_health=30.0, speed=0.0)
+    env.state.enemies = [enemy]
+
+    # Contact #1: damage dealt, cooldown started, enemy SURVIVES.
+    obs, reward, done, info = env.step(int(0))  # ControlStyle2.NO_OP
+    rb = info["reward_breakdown"]
+    assert rb.kill_enemy == 0.0  # NO kill credit for contact
+    assert rb.damage_dealt == 0.0  # the player's projectiles did nothing
+    assert rb.damage_taken == pytest.approx(R_DAMAGE_TAKEN_PER_HP * contact_damage)
+    assert len(env.state.enemies) == 1  # the enemy persists (non-kamikaze)
+    assert enemy.damage_cooldown == int(env._ecfg["contact_damage_cooldown_steps"])
+    assert p.health == pytest.approx(max_health - contact_damage)
+
+    # While in cooldown, contact deals NO further damage (i-frames).
+    health_after_first = p.health
+    for _ in range(3):
+        obs, reward, done, info = env.step(int(0))
+        assert info["reward_breakdown"].damage_taken == 0.0
+    assert p.health == pytest.approx(health_after_first)
+
+    # Fast-forward the cooldown; the next contact damages again.
+    for _ in range(46):
+        obs, reward, done, info = env.step(int(0))
+    assert p.health < health_after_first  # second contact landed after cooldown

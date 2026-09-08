@@ -7,7 +7,7 @@ Loads the saved style-1 model and plays it live in the Pygame arena for
 visual inspection / video recording.
 
 Usage:
-    python scripts/eval_style1.py [--algo ppo] [--episodes 5]
+    python scripts/eval_style1.py [--algo ppo] [--episodes 5] [--sampling stochastic]
 """
 
 from __future__ import annotations
@@ -44,6 +44,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--episodes", type=int, default=5)
     parser.add_argument(
+        "--sampling",
+        type=str,
+        choices=["stochastic", "deterministic"],
+        default="stochastic",
+        help="PPO is a stochastic policy: sampling from the trained policy's "
+        "action distribution (stochastic) shows its full learned behaviour, "
+        "including phase progression; argmax (deterministic) collapses to "
+        "the policy's single most-likely action. DQN users may prefer "
+        "deterministic.",
+    )
+    parser.add_argument(
         "--fps",
         type=int,
         default=60,
@@ -60,7 +71,11 @@ def main() -> None:
     model_cls = PPO if args.algo == "ppo" else DQN
     model = model_cls.load(model_path)
 
-    env = ArenaGymEnv(control_style=CONTROL_STYLE, render_mode="human")
+    env = ArenaGymEnv(
+        control_style=CONTROL_STYLE,
+        curriculum_enabled=(args.curriculum == "on"),  # match training conditions
+        render_mode="human",
+    )
     clock = pygame.time.Clock()
 
     # Space pauses, '[' / ']' change playback speed, R restarts the current
@@ -89,7 +104,9 @@ def main() -> None:
             if env.consume_skip_request():
                 break
 
-            action, _state = model.predict(obs, deterministic=True)
+            action, _state = model.predict(
+                obs, deterministic=(args.sampling == "deterministic")
+            )
             obs, reward, terminated, truncated, info = env.step(action)
             if not env.render():
                 terminated = truncated = True
