@@ -12,6 +12,7 @@ from arena.core_env import ArenaCoreEnv
 from arena.entities import Enemy
 from arena.rewards import APPROACH_REWARD_EPISODE_CAP, compute_reward
 from arena.rewards_config import (
+    R_AIMED_HIT_BONUS,
     R_APPROACH_NEAREST_ENEMY,
     R_DAMAGE_DEALT_PER_HP,
     R_DAMAGE_TAKEN_PER_HP,
@@ -207,6 +208,7 @@ def test_shot_toward_enemy_flag_is_graded_alignment():
     env._try_shoot()
     assert env._shot_toward_enemy_flag == pytest.approx(1.0)
 
+
     p.orientation = math.radians(60.0)  # 60 deg off: graded cos(60) = 0.5
     p.shoot_cooldown = 0
     env._try_shoot()
@@ -217,6 +219,72 @@ def test_shot_toward_enemy_flag_is_graded_alignment():
     env._try_shoot()
     assert env._shot_toward_enemy_flag == pytest.approx(0.0)
 
+
+def test_aimed_hit_bonus_pays_graded_alignment_sum():
+    """R_AIMED_HIT_BONUS (2026-09-08) must pay proportionally to the sum of
+    the fire-time graded alignments of projectiles that actually HIT an
+    objective this step -- dead-on intended hit pays in full, a lucky hit
+    (alignment ~0) pays ~nothing, no hits pays 0.
+    """
+    assert compute_reward({"aimed_hit_alignment_sum": 1.0}).aimed_hit == pytest.approx(
+        R_AIMED_HIT_BONUS
+    )
+    assert compute_reward({"aimed_hit_alignment_sum": 0.5}).aimed_hit == pytest.approx(
+        R_AIMED_HIT_BONUS / 2.0
+    )
+    assert compute_reward({"aimed_hit_alignment_sum": 0.0}).aimed_hit == 0.0
+    assert compute_reward({}).aimed_hit == 0.0
+
+
+def test_aimed_hit_bonus_fires_on_hit_wiring():
+    """ENV-BACKED pin: core_env stamps the graded alignment on each
+    projectile at fire time and _resolve_collisions accumulates it only
+    for projectiles that actually hit -- an unaimed shot that hits nothing
+    contributes 0.
+    """
+    env = ArenaCoreEnv(control_style=2)
+    env.reset(seed=0)
+    p = env.state.player
+
+    # Enemy directly ahead in the bullet's path, tough enough to survive.
+    env.state.enemies.append(
+        Enemy(x=p.x + 12.0, y=p.y, health=50.0, max_health=50.0, speed=0.0)
+    )
+    p.orientation = 0.0
+    p.shoot_cooldown = 0
+    env._try_shoot()
+    env._advance_projectiles()
+    result = env._resolve_collisions()
+    assert result[-1] == pytest.approx(1.0)  # dead-on hit: full alignment
+
+    # Enemy BEHIND the player: the forward shot hits nothing.
+    env.state.enemies = [
+        Enemy(x=p.x - 12.0, y=p.y, health=50.0, max_health=50.0, speed=0.0)
+    ]
+    p.shoot_cooldown = 0
+    p.orientation = 0.0
+    env._try_shoot()
+    env._advance_projectiles()
+    result = env._resolve_collisions()
+    assert result[-1] == pytest.approx(0.0)
+
+
+def test_wall_proximity_corner_sums_two_walls():
+    """R_WALL_PROXIMITY_PER_STEP (2026-09-08 corner-aware form) must sum the
+    ramps of the two nearest walls, so a corner costs ~2x a straight wall;
+    a missing wall_distance_second key keeps old one-wall behaviour.
+    """
+    # Straight wall: unchanged.
+    one_wall = compute_reward({"wall_distance": 0.0})
+    assert one_wall.wall_proximity == pytest.approx(R_WALL_PROXIMITY_PER_STEP)
+
+    # Corner: both ramps at full -> 2x.
+    corner = compute_reward({"wall_distance": 0.0, "wall_distance_second": 0.0})
+    assert corner.wall_proximity == pytest.approx(2 * R_WALL_PROXIMITY_PER_STEP)
+
+    # Old callers that never send the second key: no extra penalty.
+    legacy = compute_reward({"wall_distance": WALL_PROXIMITY_MARGIN + 1.0})
+    assert legacy.wall_proximity == 0.0
 
 def test_style2_shoot_preserves_velocity_and_noop_brakes():
     """ENV-BACKED pin of the 2026-08-28 kiting change: in style 2, SHOOT

@@ -17,14 +17,14 @@
   },
   "enemy": {
     "radius": 12.0,
-    "contact_damage": 15.0,
-    "base_health": 30.0,
+    "contact_damage": 25.0,
+    "base_health": 25.0,
     "max_concurrent_enemies": 18,
     "contact_damage_cooldown_steps": 45
   },
   "spawner": {
     "radius": 18.0,
-    "base_health": 120.0
+    "base_health": 50.0
   },
   "phase_curve": {
     "base_enemy_speed": 2.4,
@@ -43,5 +43,6 @@
   "observation": {
     "num_active_enemies_max": 12
   },
+  "_changelog_2026-09-08": "enemy.base_health 30.0 -> 25.0 so projectile_damage 25.0 one-shots a full-health enemy; keep edits in THIS file (authoritative) in sync with core_env._DEFAULTS (fallback only - arena.json merges over it).",
   "_notes": "Single source of truth for Part II environment parameters, mirroring part1_gridworld/config/training_config.json. core_env.py / phases.py / obs.py should load this from CONFIG_DIR/arena.json once implemented rather than hardcoding module constants (ARENA_WIDTH/ARENA_HEIGHT/DEFAULT_MAX_STEPS are kept as fallbacks). max_steps was reduced from the original 3000 so a 300k-timestep run sees a usable number of episode terminations (see docs/AUDIT_main.md 5.4). phase_curve and curriculum values feed phases.py::difficulty_for_phase (see its docstring for the ramp schedule). num_active_enemies_max is the normalisation divisor for the num_active_enemies_frac observation feature (docs/AUDIT_main.md 7.4). REBALANCE (2026-08-28): enemy speed raised (base 1.6->2.4, gain 0.35->0.55 so a phase-6 enemy at 5.15 is nearly as fast as the player's 6.0), spawn interval shortened (120->90, min 40->30), contact damage 12->10 -- the old tuning let the player escape for free and made corner-camping the optimal learned strategy (0 enemy kills across all tuned_v1/v2 rollouts; see arena/rewards_config.py module docstring). All values are starting points to be tuned during implementation and reported in report section 4."
 }

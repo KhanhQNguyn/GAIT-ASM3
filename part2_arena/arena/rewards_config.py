@@ -107,23 +107,41 @@ every event term so it shapes pacing, not behavior, and cannot make death
 preferable (1200 * -0.01 = -12 >> -R_DEATH=100)."""
 
 R_WALL_PROXIMITY_PER_STEP: float = -0.05
-"""DECISION (raised 2026-09-08, was -0.02 since the 2026-08-28 rebalance):
-ACTIVE shaping term. Penalty while the player stands within
-WALL_PROXIMITY_MARGIN of any arena wall, ramping linearly from 0 at the
-margin edge to the full value AT the wall. Rationale for raising it:
-head-to-head aim-stats evals (scripts/eval_aim_stats.py) of every trained
-checkpoint showed wall_frac 0.74-0.94 at -0.02 -- the term was noise
-against the kill economy, so every policy still hugged walls and sprayed
-bullets into the enemy queue (kills land even unaimed because enemies walk
-INTO projectiles). At -0.05 a full parked episode costs ~-40, enough to
-make open-field kiting the cheaper strategy; still linear-ramped (steered,
-not teleported) and still small next to a death (-100)."""
+"""DECISION (2026-09-08: made CORNER-AWARE, originally -0.02 from the
+2026-08-28 rebalance, raised to -0.05 same day): ACTIVE shaping term.
+Penalty while the player stands within WALL_PROXIMITY_MARGIN of any arena
+wall, ramping linearly from 0 at the margin edge to the full value AT the
+wall. Since 2026-09-08 the penalty SUMS the two nearest walls' ramps, so
+standing in a corner automatically costs ~2x a straight wall -- the
+"stuck in a corner" deterrent without a separate harsh penalty or cliff.
+Rationale: head-to-head aim-stats evals (scripts/eval_aim_stats.py) of
+every trained checkpoint showed wall_frac 0.74-0.94 at -0.02 -- the term
+was noise against the kill economy, so every policy hugged walls and
+sprayed bullets into the enemy queue (kills land even unaimed because
+enemies walk INTO projectiles). At -0.05 a full parked episode costs
+~-40, and a corner-parked one ~-80, enough to make open-field kiting the
+cheaper strategy; still linear-ramped (steered, not teleported) and still
+small next to a death (-100)."""
 
 WALL_PROXIMITY_MARGIN: float = 120.0
 """Distance (arena world units) from any wall at which
 R_WALL_PROXIMITY_PER_STEP starts ramping up. 120 units is ~1/8 of the
 arena's smaller dimension (680) -- deep enough that the agent has room to
 turn around, shallow enough that most of the arena stays penalty-free."""
+
+R_AIMED_HIT_BONUS: float = 1.0
+"""DECISION (2026-09-08): ACTIVE shaping term. Extra reward when a player
+projectile that was fired TOWARD its objective actually hits an enemy or
+spawner: R_AIMED_HIT_BONUS * (graded alignment stamped on the projectile
+at fire time, in [0, 1]). Separates INTENDED hits (dead-on: +1.0 on top
+of the +1.25 damage-dealt and +5 kill) from LUCKY hits (enemies walking
+into spray pay ~0 bonus). Justification: aim-stats evals showed kills
+landing with mean shot alignment 0.00-0.16 -- the kill economy paid luck
+and spray as well as aim, so the policy never had to learn to aim. This
+is the only lever that pays intent directly; it is event-based (paid only
+on an actual hit), so it cannot be farmed by parking and firing. Order
+kept: R_KILL_SPAWNER (20) > R_KILL_ENEMY (5) > a dead-on aimed hit
+(<= 1.0 + 1.25 + 0.12 aim shaping) so phase progression stays dominant."""
 
 R_SHOOT_TOWARD_ENEMY: float = 0.12
 """DECISION (graded AND raised 0.06 -> 0.12 on 2026-09-08, after the

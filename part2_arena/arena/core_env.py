@@ -271,11 +271,14 @@ class ArenaCoreEnv:
 
         # 3-4. projectiles, collisions, damage
         self._advance_projectiles()
-        enemies_killed, spawners_killed, dmg_taken, dmg_dealt = self._resolve_collisions()
+        enemies_killed, spawners_killed, dmg_taken, dmg_dealt, aimed_hit_sum = (
+            self._resolve_collisions()
+        )
         ev["enemies_killed"] = enemies_killed
         ev["spawners_killed"] = spawners_killed
         ev["damage_taken"] = dmg_taken
         ev["damage_dealt"] = dmg_dealt
+        ev["aimed_hit_alignment_sum"] = aimed_hit_sum
 
         new_nearest = self._nearest_enemy_distance()
         if prev_nearest is not None and new_nearest is not None:
@@ -288,14 +291,21 @@ class ArenaCoreEnv:
         ev["shot_fired_with_no_target"] = self._shot_no_target_flag
         ev["shot_toward_enemy"] = self._shot_toward_enemy_flag
 
-        # Distance to the nearest wall, for the wall-proximity shaping term
-        # (see rewards_config.py R_WALL_PROXIMITY_PER_STEP).
-        ev["wall_distance"] = min(
-            float(p.x),
-            float(p.y),
-            self.arena_width - float(p.x),
-            self.arena_height - float(p.y),
+        # Distances to the nearest and SECOND-nearest wall, for the
+        # wall-proximity shaping term (see rewards_config.py
+        # R_WALL_PROXIMITY_PER_STEP): summing the two ramps makes a corner
+        # cost ~2x a straight wall automatically -- the "stuck in corner"
+        # deterrent without a separate harsh penalty.
+        wall_ds = sorted(
+            (
+                float(p.x),
+                float(p.y),
+                self.arena_width - float(p.x),
+                self.arena_height - float(p.y),
+            )
         )
+        ev["wall_distance"] = wall_ds[0]
+        ev["wall_distance_second"] = wall_ds[1]
 
         # 5. phase system
         if self.phase_manager.maybe_advance_phase(st.spawners):
@@ -358,6 +368,8 @@ class ArenaCoreEnv:
             "shot_fired_with_no_target": False,
             "shot_toward_enemy": 0.0,
             "wall_distance": float("inf"),
+            "wall_distance_second": float("inf"),
+            "aimed_hit_alignment_sum": 0.0,
         }
 
     def _nearest_enemy_distance(self) -> float | None:
@@ -486,19 +498,6 @@ class ArenaCoreEnv:
         if p.shoot_cooldown > 0:
             return
         spd = float(pc["projectile_speed"])
-        st.projectiles.append(
-            Projectile(
-                x=p.x,
-                y=p.y,
-                vx=math.cos(p.orientation) * spd,
-                vy=math.sin(p.orientation) * spd,
-                owner="player",
-                damage=float(pc["projectile_damage"]),
-            )
-        )
-        p.shoot_cooldown = int(pc["shoot_cooldown_steps"])
-        nd = self._nearest_enemy_distance()
-        self._shot_no_target_flag = (nd is None) or (nd > SHOT_NO_TARGET_RADIUS)
 
         # Aim shaping (R_SHOOT_TOWARD_ENEMY, GRADED since 2026-09-08): the
         # term pays R_SHOOT_TOWARD_ENEMY * max(0, cos(diff)) where diff is
@@ -512,7 +511,34 @@ class ArenaCoreEnv:
         # important for style 2, where aim is coupled to the cardinal
         # movement direction and the old binary flag gave zero signal until
         # the shot was already inside the window.
-        self._shot_toward_enemy_flag = 0.0
+        alignment = self._graded_aim_alignment()
+
+        # The same graded value is stamped onto the projectile so
+        # R_AIMED_HIT_BONUS can pay for INTENDED hits only (an alignment of
+        # ~0 means the hit, if any, was luck).
+        st.projectiles.append(
+            Projectile(
+                x=p.x,
+                y=p.y,
+                vx=math.cos(p.orientation) * spd,
+                vy=math.sin(p.orientation) * spd,
+                owner="player",
+                damage=float(pc["projectile_damage"]),
+                aim_alignment=alignment,
+            )
+        )
+        p.shoot_cooldown = int(pc["shoot_cooldown_steps"])
+        nd = self._nearest_enemy_distance()
+        self._shot_no_target_flag = (nd is None) or (nd > SHOT_NO_TARGET_RADIUS)
+        self._shot_toward_enemy_flag = alignment
+
+    def _graded_aim_alignment(self) -> float:
+        """Graded alignment of the player's CURRENT facing with its current
+        objective (nearest in-range enemy, else nearest active spawner), in
+        [0, 1]. See _try_shoot's comment for the design rationale.
+        """
+        st = self.state
+        p = st.player
         ne = self._nearest_enemy()
         if ne is not None:
             d = distance(p.x, p.y, ne.x, ne.y)
@@ -529,10 +555,11 @@ class ArenaCoreEnv:
                 sp = min(active, key=lambda s: distance(p.x, p.y, s.x, s.y))
                 target_x, target_y = sp.x, sp.y
                 aimed_at_objective = True
-        if aimed_at_objective:
-            ang_to_target = relative_direction(p.x, p.y, target_x, target_y)
-            diff = abs((ang_to_target - p.orientation + math.pi) % (2 * math.pi) - math.pi)
-            self._shot_toward_enemy_flag = max(0.0, math.cos(diff))
+        if not aimed_at_objective:
+            return 0.0
+        ang_to_target = relative_direction(p.x, p.y, target_x, target_y)
+        diff = abs((ang_to_target - p.orientation + math.pi) % (2 * math.pi) - math.pi)
+        return max(0.0, math.cos(diff))
 
     def _advance_enemies(self) -> None:
         st = self.state
@@ -572,7 +599,7 @@ class ArenaCoreEnv:
             pr for pr in st.projectiles if -20.0 <= pr.x <= w + 20.0 and -20.0 <= pr.y <= h + 20.0
         ]
 
-    def _resolve_collisions(self) -> tuple[int, int, float, float]:
+    def _resolve_collisions(self) -> tuple[int, int, float, float, float]:
         st = self.state
         p = st.player
         p_r = float(self._pcfg["radius"])
@@ -583,7 +610,10 @@ class ArenaCoreEnv:
         spawners_killed = 0
         dmg_taken = 0.0
         dmg_dealt = 0.0
-
+        # Sum of the graded aim alignment of every player projectile that
+        # hits an objective this step (see R_AIMED_HIT_BONUS in
+        # rewards_config.py) -- pays for intended hits, not lucky ones.
+        aimed_hit_sum = 0.0
         # player projectiles vs enemies / spawners (one hit consumes the shot)
         surviving = []
         for pr in st.projectiles:
@@ -593,6 +623,7 @@ class ArenaCoreEnv:
                     dealt = min(pr.damage, e.health)  # no overkill credit
                     e.health -= pr.damage
                     dmg_dealt += dealt
+                    aimed_hit_sum += pr.aim_alignment
                     hit = True
                     if e.health <= 0:
                         enemies_killed += 1
@@ -603,6 +634,7 @@ class ArenaCoreEnv:
                     if s.active and circle_collision(pr.x, pr.y, _PROJECTILE_RADIUS, s.x, s.y, s_r):
                         s.health -= pr.damage
                         hit = True
+                        aimed_hit_sum += pr.aim_alignment
                         if s.health <= 0:
                             s.active = False
                             spawners_killed += 1
@@ -636,4 +668,4 @@ class ArenaCoreEnv:
         if p.health < 0.0:
             p.health = 0.0
 
-        return enemies_killed, spawners_killed, dmg_taken, dmg_dealt
+        return enemies_killed, spawners_killed, dmg_taken, dmg_dealt, aimed_hit_sum

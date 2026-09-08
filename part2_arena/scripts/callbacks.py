@@ -35,6 +35,7 @@ REWARD_TERM_TAGS = [
     "reward_terms/approach_nearest_enemy",
     "reward_terms/shoot_while_no_target",
     "reward_terms/shoot_toward_enemy",
+    "reward_terms/aimed_hit",
     "reward_terms/wall_proximity",
     "reward_terms/time_penalty",
 ]

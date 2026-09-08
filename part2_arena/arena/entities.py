@@ -77,6 +77,11 @@ class Projectile:
     vy: float
     owner: str  # "player" or "enemy"
     damage: float
+    aim_alignment: float = 0.0
+    """Graded aim quality (max(0, cos of angle-to-objective), in [0, 1])
+    stamped at fire time by core_env._try_shoot, paid out by
+    R_AIMED_HIT_BONUS only if this projectile actually hits an enemy or
+    spawner -- separates intended hits from lucky ones (2026-09-08)."""
 
 
 @dataclass

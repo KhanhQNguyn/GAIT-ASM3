@@ -34,6 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from arena.rewards_config import (
+    R_AIMED_HIT_BONUS,
     R_APPROACH_NEAREST_ENEMY,
     R_DAMAGE_DEALT_PER_HP,
     R_DAMAGE_TAKEN_PER_HP,
@@ -72,6 +73,7 @@ class RewardBreakdown:
     approach_nearest_enemy: float = 0.0
     shoot_while_no_target: float = 0.0
     shoot_toward_enemy: float = 0.0
+    aimed_hit: float = 0.0
     wall_proximity: float = 0.0
     time_penalty: float = 0.0
 
@@ -87,6 +89,7 @@ class RewardBreakdown:
             + self.approach_nearest_enemy
             + self.shoot_while_no_target
             + self.shoot_toward_enemy
+            + self.aimed_hit
             + self.wall_proximity
             + self.time_penalty
         )
@@ -132,10 +135,24 @@ def compute_reward(
                                                        #   the nearest active spawner).
                                                        #   Bool True/False still
                                                        #   honoured as 1.0/0.0.
+            "aimed_hit_alignment_sum":         float,  # sum of the graded aim alignment
+                                                       #   (max(0, cos of angle to
+                                                       #   objective), each in [0,1])
+                                                       #   of every player projectile
+                                                       #   that HIT an enemy or
+                                                       #   spawner this step; 0.0 if
+                                                       #   none hit (drives
+                                                       #   R_AIMED_HIT_BONUS)
             "wall_distance":                   float,  # distance from the player to
                                                        #   the nearest arena wall
                                                        #   this step, >= 0 (drives the
                                                        #   wall-proximity penalty)
+            "wall_distance_second":            float,  # distance to the SECOND-nearest
+                                                       #   wall this step, >= 0; the
+                                                       #   wall penalty sums both ramps
+                                                       #   so corners cost ~2x a wall
+                                                       #   (missing key = no extra
+                                                       #   penalty, safe default)
         }
 
     Every key is always present. Missing keys are treated as 0 / False so a
@@ -174,8 +191,14 @@ def compute_reward(
                                   this term is always 0 -- machinery retained)
         shoot_while_no_target  = R_SHOOT_WHILE_NO_TARGET * shot_fired_with_no_target
         shoot_toward_enemy     = R_SHOOT_TOWARD_ENEMY     * graded shot_toward_enemy
+        aimed_hit              = R_AIMED_HIT_BONUS        * aimed_hit_alignment_sum
+                                 (sum of the fire-time graded alignment of every
+                                 projectile that actually hit an objective this
+                                 step -- pays INTENDED hits, not lucky ones)
         wall_proximity         = R_WALL_PROXIMITY_PER_STEP
-                                 * max(0.0, 1 - wall_distance / WALL_PROXIMITY_MARGIN)
+                                 * (ramp(wall_distance) + ramp(wall_distance_second)),
+                                 where ramp(d) = max(0, 1 - d / WALL_PROXIMITY_MARGIN):
+                                 cornering costs ~2x a straight wall
         time_penalty           = R_TIME_STEP_PENALTY     (unconditional, every step)
 
     `reward_overrides` (optional): a {constant_name: value} dict that
@@ -219,7 +242,14 @@ def compute_reward(
         shoot_toward_enemy=(
             R_SHOOT_TOWARD_ENEMY * float(ev.get("shot_toward_enemy", 0.0))
         ),
+        aimed_hit=R_AIMED_HIT_BONUS * float(ev.get("aimed_hit_alignment_sum", 0.0)),
         wall_proximity=r_wall
-        * max(0.0, 1.0 - float(ev.get("wall_distance", float("inf"))) / WALL_PROXIMITY_MARGIN),
+        * (
+            max(0.0, 1.0 - float(ev.get("wall_distance", float("inf"))) / WALL_PROXIMITY_MARGIN)
+            + max(
+                0.0,
+                1.0 - float(ev.get("wall_distance_second", float("inf"))) / WALL_PROXIMITY_MARGIN,
+            )
+        ),
         time_penalty=R_TIME_STEP_PENALTY,
     )
