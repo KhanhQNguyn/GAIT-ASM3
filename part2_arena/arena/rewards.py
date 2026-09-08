@@ -120,13 +120,18 @@ def compute_reward(
                                                        #   farther than
                                                        #   SHOT_NO_TARGET_RADIUS (or
                                                        #   no enemy existed)
-            "shot_toward_enemy":               bool,   # player fired this step at its
-                                                       #   current objective (nearest
+            "shot_toward_enemy":               float,  # GRADED (2026-09-08) alignment
+                                                       #   of the shot fired this step
+                                                       #   with its objective, in
+                                                       #   [0, 1] = max(0, cos of the
+                                                       #   angle between shot
+                                                       #   direction and the nearest
                                                        #   enemy within
-                                                       #   SHOT_NO_TARGET_RADIUS, or --
+                                                       #   SHOT_NO_TARGET_RADIUS or --
                                                        #   when none is in range --
-                                                       #   the nearest active spawner),
-                                                       #   within the aim window
+                                                       #   the nearest active spawner).
+                                                       #   Bool True/False still
+                                                       #   honoured as 1.0/0.0.
             "wall_distance":                   float,  # distance from the player to
                                                        #   the nearest arena wall
                                                        #   this step, >= 0 (drives the
@@ -168,7 +173,7 @@ def compute_reward(
                                   (currently DISABLED: the constant is 0.0, so
                                   this term is always 0 -- machinery retained)
         shoot_while_no_target  = R_SHOOT_WHILE_NO_TARGET * shot_fired_with_no_target
-        shoot_toward_enemy     = R_SHOOT_TOWARD_ENEMY     * shot_toward_enemy
+        shoot_toward_enemy     = R_SHOOT_TOWARD_ENEMY     * graded shot_toward_enemy
         wall_proximity         = R_WALL_PROXIMITY_PER_STEP
                                  * max(0.0, 1 - wall_distance / WALL_PROXIMITY_MARGIN)
         time_penalty           = R_TIME_STEP_PENALTY     (unconditional, every step)
@@ -212,7 +217,7 @@ def compute_reward(
             R_SHOOT_WHILE_NO_TARGET * (1.0 if ev.get("shot_fired_with_no_target") else 0.0)
         ),
         shoot_toward_enemy=(
-            R_SHOOT_TOWARD_ENEMY * (1.0 if ev.get("shot_toward_enemy") else 0.0)
+            R_SHOOT_TOWARD_ENEMY * float(ev.get("shot_toward_enemy", 0.0))
         ),
         wall_proximity=r_wall
         * max(0.0, 1.0 - float(ev.get("wall_distance", float("inf"))) / WALL_PROXIMITY_MARGIN),

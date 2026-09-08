@@ -3,6 +3,8 @@ Part II-J's reward structure requirement, and guards the "no inline reward
 math outside rewards.py" architecture principle.
 """
 
+import math
+
 import pytest
 
 import arena.rewards as rewards_module
@@ -170,13 +172,50 @@ def test_shoot_toward_enemy_reward_fires_on_aimed_shot():
     step_events says the player fired at a nearby enemy, and not otherwise.
     """
     aimed = compute_reward({"shot_toward_enemy": True})
-    assert aimed.shoot_toward_enemy == R_SHOOT_TOWARD_ENEMY
+    assert aimed.shoot_toward_enemy == pytest.approx(R_SHOOT_TOWARD_ENEMY)
 
     not_aimed = compute_reward({"shot_toward_enemy": False})
     assert not_aimed.shoot_toward_enemy == 0.0
 
+    # Graded (2026-09-08): a partial alignment pays proportionally.
+    half_aimed = compute_reward({"shot_toward_enemy": 0.5})
+    assert half_aimed.shoot_toward_enemy == pytest.approx(R_SHOOT_TOWARD_ENEMY / 2.0)
+
     absent = compute_reward({})
     assert absent.shoot_toward_enemy == 0.0
+
+
+def test_shot_toward_enemy_flag_is_graded_alignment():
+    """ENV-BACKED pin of the 2026-09-08 graded aim shaping: core_env's
+    _shot_toward_enemy_flag is max(0, cos(diff)) between the shot direction
+    and the nearest in-range enemy -- 1.0 dead-on, proportional off-axis,
+    0.0 at 90+ deg. The graded term is what gives style 2 (whose aim is
+    coupled to its cardinal movement) a smooth gradient toward facing the
+    enemy before firing.
+    """
+    env = ArenaCoreEnv(control_style=2)
+    env.reset(seed=0)
+    p = env.state.player
+
+    # Enemy directly to the player's right, well inside engage range.
+    env.state.enemies.append(
+        Enemy(x=p.x + 200.0, y=p.y, health=30.0, max_health=30.0, speed=2.0)
+    )
+
+    p.orientation = 0.0  # facing +x: dead-on at the enemy
+    p.shoot_cooldown = 0
+    env._try_shoot()
+    assert env._shot_toward_enemy_flag == pytest.approx(1.0)
+
+    p.orientation = math.radians(60.0)  # 60 deg off: graded cos(60) = 0.5
+    p.shoot_cooldown = 0
+    env._try_shoot()
+    assert env._shot_toward_enemy_flag == pytest.approx(0.5)
+
+    p.orientation = math.radians(90.0)  # perpendicular: no credit
+    p.shoot_cooldown = 0
+    env._try_shoot()
+    assert env._shot_toward_enemy_flag == pytest.approx(0.0)
 
 
 def test_style2_shoot_preserves_velocity_and_noop_brakes():

@@ -106,18 +106,18 @@ reward; the agent must earn to offset the clock. Kept small relative to
 every event term so it shapes pacing, not behavior, and cannot make death
 preferable (1200 * -0.01 = -12 >> -R_DEATH=100)."""
 
-R_WALL_PROXIMITY_PER_STEP: float = -0.02
-"""DECISION (2026-08-28 rebalance): ACTIVE shaping term. Small penalty while
-the player stands within WALL_PROXIMITY_MARGIN of any arena wall, ramping
-linearly from 0 at the margin edge to the full value AT the wall.
-Justification: eval of the tuned_v3 style-2 policy showed it retreating to
-walls and getting cornered -- walls leave enemies only ~90-180 degrees of
-approach, so wall-hugging is a rational hiding spot even for a policy that
-can fight. This term makes open-field positioning the cheaper strategy:
-parked at a wall for a full episode costs -24 (comparable to the time
-penalty), while the agent's measured combat skill (kills + damage-dealt
-rewards) more than offsets staying out. Scales with proximity rather than
-being a flat cliff so the agent is gently steered away, not teleported."""
+R_WALL_PROXIMITY_PER_STEP: float = -0.05
+"""DECISION (raised 2026-09-08, was -0.02 since the 2026-08-28 rebalance):
+ACTIVE shaping term. Penalty while the player stands within
+WALL_PROXIMITY_MARGIN of any arena wall, ramping linearly from 0 at the
+margin edge to the full value AT the wall. Rationale for raising it:
+head-to-head aim-stats evals (scripts/eval_aim_stats.py) of every trained
+checkpoint showed wall_frac 0.74-0.94 at -0.02 -- the term was noise
+against the kill economy, so every policy still hugged walls and sprayed
+bullets into the enemy queue (kills land even unaimed because enemies walk
+INTO projectiles). At -0.05 a full parked episode costs ~-40, enough to
+make open-field kiting the cheaper strategy; still linear-ramped (steered,
+not teleported) and still small next to a death (-100)."""
 
 WALL_PROXIMITY_MARGIN: float = 120.0
 """Distance (arena world units) from any wall at which
@@ -125,22 +125,27 @@ R_WALL_PROXIMITY_PER_STEP starts ramping up. 120 units is ~1/8 of the
 arena's smaller dimension (680) -- deep enough that the agent has room to
 turn around, shallow enough that most of the arena stays penalty-free."""
 
-R_SHOOT_TOWARD_ENEMY: float = 0.06
-"""DECISION (2026-08-28 rebalance): ACTIVE shaping term. Positive reward
-each time the player fires a projectile roughly toward its CURRENT
-OBJECTIVE: (a) the nearest enemy within SHOT_NO_TARGET_RADIUS when one
-exists, or (b) -- when no enemy is in range -- the nearest active spawner
-(no distance gate; spawners are static, and aiming at one is how the agent
-discovers spawner kills). Both cases use the same ~45 degree alignment
-window. Justification: training curves showed the agent was UNLEARNING
-shooting -- reward only lands on a HIT, and hits were too rare early to
-provide a gradient, so PPO down-weighted every shoot/approach action. This
-term pays out at the AIM level (aim +0.06, hit +1.25, kill +5.0), and the
-spawner fallback exists because ZERO spawner kills ever occurred across
-all tuning runs -- R_KILL_SPAWNER (+20) and R_PHASE_PROGRESS (+50) were
-never sampled, so the biggest reward gradient in the game was unreachable
-without aim-level signal. It cannot be farmed: it requires the shot to
-actually point at a nearby enemy or at the spawner objective."""
+R_SHOOT_TOWARD_ENEMY: float = 0.12
+"""DECISION (graded AND raised 0.06 -> 0.12 on 2026-09-08, after the
+2026-08-28 rebalance): ACTIVE shaping term. Positive reward each time the
+player fires a projectile
+toward its CURRENT OBJECTIVE: (a) the nearest enemy within
+SHOT_NO_TARGET_RADIUS when one exists, or (b) -- when no enemy is in range
+-- the nearest active spawner (no distance gate; spawners are static, and
+aiming at one is how the agent discovers spawner kills). The payout is now
+GRADED: R_SHOOT_TOWARD_ENEMY * max(0, cos(diff)), diff = angle between the
+shot direction and the objective. Replaces the old binary ~45-degree
+window, which paid nothing until the shot was already inside the window --
+zero gradient while approaching alignment. That mattered most for style 2,
+where the aim is coupled to the (cardinal-only) movement direction and the
+policy must learn to reposition until an enemy lands on an axis, then
+charge head-on. Justification: reward only lands on a HIT and hits were too
+rare early to provide a gradient, so PPO down-weighted every shoot action;
+this term pays at the AIM level (aim +0.12 max, hit +1.25, kill +5.0). The
+spawner fallback exists because ZERO spawner kills ever occurred across all
+tuning runs -- R_KILL_SPAWNER (+20) and R_PHASE_PROGRESS (+50) were never
+sampled without aim-level signal. It cannot be farmed: partial credit
+decays as cos(diff), so spamming at 90+ deg off pays nothing."""
 
 R_APPROACH_NEAREST_ENEMY: float = 0.0
 """DECISION (2026-08-28 rebalance): DISABLED, set to 0.0 (was 0.01,

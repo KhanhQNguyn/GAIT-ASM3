@@ -45,7 +45,7 @@ COLORS = {
 _PLAYER_RADIUS = 14.0
 _ENEMY_RADIUS = 12.0
 _SPAWNER_RADIUS = 18.0
-_PROJECTILE_RADIUS = 4.0
+_PROJECTILE_RADIUS = 8.0  # keep in sync with core_env._PROJECTILE_RADIUS
 
 
 class TimedBanner:

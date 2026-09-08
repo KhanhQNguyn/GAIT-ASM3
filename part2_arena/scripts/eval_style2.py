@@ -32,11 +32,11 @@ CONTROL_STYLE = 2
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--algo", type=str, choices=["ppo", "dqn"], default="ppo")
-    parser.add_argument("--curriculum", type=str, choices=["on", "off"], default="off")
+    parser.add_argument("--curriculum", type=str, choices=["on", "off"], default="on")
     parser.add_argument(
         "--config",
         type=str,
-        default="tuned_v1",
+        default="tuned_v4",
         help="hyperparameter preset the model was trained with (part of its filename)",
     )
     parser.add_argument("--episodes", type=int, default=5)

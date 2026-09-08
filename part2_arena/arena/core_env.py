@@ -78,20 +78,21 @@ _DEFAULTS = {
         "radius": 12.0,
         "contact_damage": 12.0,
         "contact_damage_cooldown_steps": 45,
-        "base_health": 30.0,
+        "base_health": 25.0,
         "max_concurrent_enemies": 18,
     },
     "spawner": {"radius": 18.0, "base_health": 120.0},
 }
 
-_PROJECTILE_RADIUS = 4.0
+# 2026-09-08: doubled from 4.0 to 8.0 (visual radius kept in sync in
+# render_pygame.py). Style 2's aim is coupled to its movement (projectiles
+# fire along the velocity direction, which is cardinal-only), so the hit
+# cone is what makes jousting -- charging an enemy head-on along an axis
+# while firing -- learnable at all: a 4px bullet gives only a ~6 deg cone
+# at 300px range, too tight for PPO to discover. 8px roughly doubles it.
+# Style 1 rotates freely and loses nothing.
+_PROJECTILE_RADIUS = 8.0
 _SPAWNER_MARGIN = 90.0
-# Angular alignment window for R_SHOOT_TOWARD_ENEMY (see rewards_config.py):
-# a shot counts as "toward" the nearest enemy when within this angle of the
-# player-to-enemy direction. 45 deg (widened from 30 on 2026-08-28) is a
-# loose early window so roughly-facing-the-threat gets rewarded, tightened
-# by the hit/kill rewards once the skill develops.
-_AIM_ANGLE_WINDOW_RAD = math.radians(45.0)
 
 
 def _load_config() -> dict:
@@ -143,7 +144,7 @@ class ArenaCoreEnv:
         self.state: ArenaState | None = None
         self._current_enemy_speed = 1.6
         self._shot_no_target_flag = False
-        self._shot_toward_enemy_flag = False
+        self._shot_toward_enemy_flag = 0.0
         # transient per-step data exposed for rendering / debugging
         self._last_obs = None
         self._last_step_events: dict = self._empty_step_events()
@@ -187,7 +188,7 @@ class ArenaCoreEnv:
         self.state.phase = 0
         self.state.step_count = 0
         self._shot_no_target_flag = False
-        self._shot_toward_enemy_flag = False
+        self._shot_toward_enemy_flag = 0.0
         self._render_events = []
         self._last_step_events = self._empty_step_events()
         self._cumulative_approach_reward = 0.0
@@ -355,7 +356,7 @@ class ArenaCoreEnv:
             "nearest_enemy_distance": float("inf"),
             "cumulative_approach_reward": 0.0,
             "shot_fired_with_no_target": False,
-            "shot_toward_enemy": False,
+            "shot_toward_enemy": 0.0,
             "wall_distance": float("inf"),
         }
 
@@ -412,7 +413,7 @@ class ArenaCoreEnv:
         pc = self._pcfg
         max_speed = float(pc["max_speed"])
         self._shot_no_target_flag = False
-        self._shot_toward_enemy_flag = False
+        self._shot_toward_enemy_flag = 0.0
 
         try:
             act = self.action_enum(action)
@@ -499,13 +500,19 @@ class ArenaCoreEnv:
         nd = self._nearest_enemy_distance()
         self._shot_no_target_flag = (nd is None) or (nd > SHOT_NO_TARGET_RADIUS)
 
-        # Aim shaping (R_SHOOT_TOWARD_ENEMY): a shot counts as "toward an
-        # objective" when it points within ~45 deg of (a) the nearest enemy
-        # within engage range, or (b) -- when no enemy is in range -- the
-        # nearest active spawner (no distance gate: spawners are static and
-        # this fallback is what lets the agent discover spawner kills /
-        # phase progression).
-        self._shot_toward_enemy_flag = False
+        # Aim shaping (R_SHOOT_TOWARD_ENEMY, GRADED since 2026-09-08): the
+        # term pays R_SHOOT_TOWARD_ENEMY * max(0, cos(diff)) where diff is
+        # the angle between the shot direction and its objective -- (a) the
+        # nearest enemy within SHOT_NO_TARGET_RADIUS, or (b) -- when no
+        # enemy is in range -- the nearest active spawner (no distance
+        # gate: spawners are static and this fallback is what lets the
+        # agent discover spawner kills / phase progression). Grading
+        # replaces the old binary 45-deg window so the policy gets a smooth
+        # gradient toward FACING the objective before firing -- most
+        # important for style 2, where aim is coupled to the cardinal
+        # movement direction and the old binary flag gave zero signal until
+        # the shot was already inside the window.
+        self._shot_toward_enemy_flag = 0.0
         ne = self._nearest_enemy()
         if ne is not None:
             d = distance(p.x, p.y, ne.x, ne.y)
@@ -525,8 +532,7 @@ class ArenaCoreEnv:
         if aimed_at_objective:
             ang_to_target = relative_direction(p.x, p.y, target_x, target_y)
             diff = abs((ang_to_target - p.orientation + math.pi) % (2 * math.pi) - math.pi)
-            if diff <= _AIM_ANGLE_WINDOW_RAD:
-                self._shot_toward_enemy_flag = True
+            self._shot_toward_enemy_flag = max(0.0, math.cos(diff))
 
     def _advance_enemies(self) -> None:
         st = self.state
