@@ -18,7 +18,7 @@ from src.trainer import train
 
 COMPARISON_LEVEL_ID = 4  # reuse the level4 hazard layout; change if level5 fits better
 FIGURES_DIR = pathlib.Path(__file__).resolve().parent.parent.parent / "report" / "figures"
-LOGS_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs"
+LOGS_DIR = pathlib.Path(__file__).resolve().parent.parent / "logs" / "compare"
 
 
 def run_comparison(seed: int = 0) -> dict[str, pathlib.Path]:

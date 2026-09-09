@@ -16,11 +16,11 @@ _CONFIG_PATH = pathlib.Path(__file__).resolve().parent.parent / "config" / "aren
 # Fallbacks used when config/arena.json is missing or partial. The
 # authoritative values live in that file (phase_curve / curriculum blocks).
 _DEFAULT_PHASE_CURVE = {
-    "base_enemy_speed": 1.6,
-    "enemy_speed_gain_per_phase": 0.35,
-    "base_spawn_interval_steps": 120,
+    "base_enemy_speed": 2.4,
+    "enemy_speed_gain_per_phase": 0.5,
+    "base_spawn_interval_steps": 70,
     "spawn_interval_decay_per_phase": 12,
-    "min_spawn_interval_steps": 40,
+    "min_spawn_interval_steps": 30,
     "base_num_spawners": 1,
     "extra_spawner_every_n_phases": 2,
     "max_expected_phase": 6,

@@ -39,21 +39,26 @@ class QTable:
 
 def qtable_path(level_id: int, algorithm: str) -> pathlib.Path:
     """Canonical on-disk location for a trained Q-table:
-    MODELS_DIR / f"level{level_id}_{algorithm}.json". One fixed convention so
-    trainer.train() (writer), main.py's watch-only path (reader), and any
-    eval/comparison script all agree without passing paths around.
+    MODELS_DIR / "level" / f"level{level_id}" / f"level{level_id}_{algorithm}.json".
+    One fixed convention so trainer.train() (writer), main.py's watch-only
+    path (reader), and any eval/comparison script all agree without passing
+    paths around. Each level gets its own "level/level<N>/" subfolder,
+    kept apart from the task/comparison log folders (see logs/ layout).
     """
-    return MODELS_DIR / f"level{level_id}_{algorithm}.json"
+    return MODELS_DIR / "level" / f"level{level_id}" / f"level{level_id}_{algorithm}.json"
 
 
 def _state_to_jsonable(state) -> list:
     """Encode a GridWorldEnv state tuple
-    (agent_x, agent_y, apples_bitmask, has_key, chest_open, monsters_tuple)
-    into a JSON-safe list. monsters_tuple (a tuple of (x, y) pairs) becomes
-    a list of 2-element lists; everything else is already JSON-safe.
+    (agent_x, agent_y, apples_bitmask, has_key, chest_open, monster_dir,
+    monster_dist, dir_threats) into a JSON-safe list. monster_dir (2-tuple)
+    and dir_threats (4-tuple) become lists; everything else is JSON-safe.
     """
-    ax, ay, bitmask, has_key, chest_open, monsters = state
-    return [ax, ay, bitmask, has_key, chest_open, [list(m) for m in monsters]]
+    ax, ay, bitmask, has_key, chest_open, monster_dir, monster_dist, dir_threats = state
+    return [
+        ax, ay, bitmask, has_key, chest_open,
+        list(monster_dir), monster_dist, list(dir_threats),
+    ]
 
 
 def _state_from_jsonable(state_repr: list) -> tuple:
@@ -61,8 +66,11 @@ def _state_from_jsonable(state_repr: list) -> tuple:
     GridWorldEnv produces (see its class docstring) so the loaded table
     indexes identically to a live environment's states.
     """
-    ax, ay, bitmask, has_key, chest_open, monsters = state_repr
-    return (ax, ay, bitmask, bool(has_key), bool(chest_open), tuple(tuple(m) for m in monsters))
+    ax, ay, bitmask, has_key, chest_open, monster_dir, monster_dist, dir_threats = state_repr
+    return (
+        ax, ay, bitmask, bool(has_key), bool(chest_open),
+        tuple(monster_dir), monster_dist, tuple(dir_threats),
+    )
 
 
 def save_qtable(q_table: "QTable", path: str | pathlib.Path) -> None:

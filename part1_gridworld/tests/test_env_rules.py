@@ -242,3 +242,114 @@ def test_episode_ends_on_death_even_with_rewards_remaining(tmp_path):
     result = env.step(Action.RIGHT)  # step into fire
     assert result.done, "Death by fire must end the episode"
     assert env._apples_bitmask != 0, "Apples should still be uncollected"
+
+
+# ---------------------------------------------------------------------------
+# State representation: nearest-monster bearing + distance bucket
+# ---------------------------------------------------------------------------
+
+def test_state_has_no_hazard_features_when_level_has_no_monsters_or_fire(tmp_path):
+    """Levels with no monsters and no fire keep the hazard slots constant
+    ((0, 0), 0, (0, 0, 0, 0)) so their state space (and learning) is unchanged."""
+    env = GridWorldEnv(_make_level(tmp_path))  # base fixture: monsters=[], fire=[]
+    state = env.reset()
+    assert len(state) == 8
+    assert state[5] == (0, 0)
+    assert state[6] == 0
+    assert state[7] == (0, 0, 0, 0)
+
+
+def test_state_encodes_nearest_monster_bearing_and_distance_bucket(tmp_path):
+    """monster_dir is (sign(dx), sign(dy)); monster_dist buckets Manhattan
+    distance into 1 / 2 / 3(+)."""
+    cases = [
+        ([1, 0], (1, 0), 1),   # directly right, adjacent
+        ([2, 0], (1, 0), 2),   # directly right, 2 away
+        ([3, 3], (1, 1), 3),   # down-right, 6 away -> "3+" bucket
+        ([0, 2], (0, 1), 2),   # directly below
+    ]
+    for start, expected_dir, expected_bucket in cases:
+        env = GridWorldEnv(
+            _make_level(tmp_path, monsters=[{"start": start, "move_prob": 0.0}])
+        )
+        state = env.reset()
+        assert state[5] == expected_dir, f"dir wrong for monster at {start}"
+        assert state[6] == expected_bucket, f"bucket wrong for monster at {start}"
+
+
+def test_only_the_nearest_monster_is_encoded(tmp_path):
+    """With several monsters the state reflects the closest one by Manhattan
+    distance (deterministic tie-break by (dist, x, y))."""
+    env = GridWorldEnv(
+        _make_level(
+            tmp_path,
+            monsters=[
+                {"start": [1, 0], "move_prob": 0.0},   # distance 1 -- nearest
+                {"start": [3, 3], "move_prob": 0.0},   # distance 6
+            ],
+        )
+    )
+    state = env.reset()
+    assert state[5] == (1, 0)
+    assert state[6] == 1
+
+
+def test_monster_features_track_relative_position_after_a_move(tmp_path):
+    """As the agent moves, the encoded bearing/distance follows the real
+    relative geometry -- this is what lets the agent learn avoidance."""
+    env = GridWorldEnv(
+        _make_level(tmp_path, monsters=[{"start": [2, 0], "move_prob": 0.0}])
+    )
+    s0 = env.reset()
+    assert (s0[5], s0[6]) == ((1, 0), 2)
+    result = env.step(Action.RIGHT)  # agent (0,0)->(1,0); monster stays at (2,0)
+    assert (result.state[5], result.state[6]) == ((1, 0), 1)
+    assert not result.done
+
+
+# ---------------------------------------------------------------------------
+# State representation: per-move hazard levels (dir_threats)
+# ---------------------------------------------------------------------------
+# dir_threats is state[7], a 4-tuple indexed by Action (UP=0, DOWN=1,
+# LEFT=2, RIGHT=3): 2 = monster/fire on that target tile, 1 = monster
+# adjacent to it, 0 = safe or blocked.
+
+def test_dir_threats_all_zero_with_no_hazards(tmp_path):
+    env = GridWorldEnv(_make_level(tmp_path))
+    assert env.reset()[7] == (0, 0, 0, 0)
+
+
+def test_dir_threats_level_2_for_monster_on_target_tile(tmp_path):
+    # monster directly right of the agent at (0,0)
+    env = GridWorldEnv(_make_level(tmp_path, monsters=[{"start": [1, 0], "move_prob": 0.0}]))
+    threats = env.reset()[7]
+    assert threats[Action.RIGHT] == 2
+    assert threats[Action.DOWN] == 0  # monster is diagonal to the DOWN tile, not adjacent
+
+
+def test_dir_threats_level_2_for_fire_on_target_tile(tmp_path):
+    env = GridWorldEnv(_make_level(tmp_path, fire=[[0, 1]]))  # fire directly below (0,0)
+    threats = env.reset()[7]
+    assert threats[Action.DOWN] == 2
+    assert threats[Action.RIGHT] == 0
+
+
+def test_dir_threats_level_1_for_monster_adjacent_to_target_tile(tmp_path):
+    # monster at (1,1): not on any target tile, but adjacent to both the
+    # DOWN target (0,1) and the RIGHT target (1,0)
+    env = GridWorldEnv(_make_level(tmp_path, monsters=[{"start": [1, 1], "move_prob": 0.0}]))
+    threats = env.reset()[7]
+    assert threats[Action.DOWN] == 1
+    assert threats[Action.RIGHT] == 1
+    assert threats[Action.UP] == 0  # blocked (off-grid)
+
+
+def test_dir_threats_blocked_direction_short_circuits_to_zero(tmp_path):
+    # rock on the RIGHT target tile, monster adjacent to it -- RIGHT is
+    # unusable, so it reports 0 (not 1) even though a monster is next to it
+    env = GridWorldEnv(
+        _make_level(tmp_path, rocks=[[1, 0]], monsters=[{"start": [1, 1], "move_prob": 0.0}])
+    )
+    threats = env.reset()[7]
+    assert threats[Action.RIGHT] == 0
+    assert threats[Action.DOWN] == 1  # monster (1,1) still adjacent to the DOWN tile (0,1)

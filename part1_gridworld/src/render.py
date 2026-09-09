@@ -11,6 +11,8 @@ Creativity additions (Section 4 of MEMBER_A_GRIDWORLD_CORE.md):
 
 from __future__ import annotations
 
+import math
+import random
 from collections.abc import Callable
 from typing import Any
 
@@ -19,7 +21,7 @@ import pygame
 from src import assets
 from src.sprites import load_sprite
 
-TILE_SIZE_PX = 48
+TILE_SIZE_PX = 64
 COLORS = {
     "background": (20, 20, 35),
     "grid_line": (45, 45, 65),
@@ -35,8 +37,12 @@ COLORS = {
     "hud_accent": (66, 200, 255),
 }
 
-# Smooth interpolation: agent position lerps over this many render calls
-LERP_FRAMES: int = 6
+# Smooth interpolation: agent position lerps over this many render calls at
+# the baseline (1.0x) speed. The renderer scales this by 1 / speed_multiplier
+# (see _lerp_frames_for_current_speed) so that the "speed" controls how fast
+# the agent glides tile-to-tile (i.e. RL action pacing), while the render
+# clock itself always ticks at a fixed FPS regardless of speed.
+LERP_FRAMES: int = 20
 
 
 def _tile_center(x: int, y: int) -> tuple[int, int]:
@@ -66,12 +72,15 @@ class GridWorldRenderer:
             grid_size: (width, height) in tiles.
             caption: Window title string.
         """
+        self._particles: list[dict] = []
+        self._prev_apples: set[tuple[int, int]] | None = None
+        self._prev_chest_open: bool = False
         self.grid_size = grid_size
         gw, gh = grid_size
         width = gw * TILE_SIZE_PX
         # Extra vertical space for HUD at top and control hint strip at bottom
-        self._hud_height = 56
-        self._hint_height = 24
+        self._hud_height = 72
+        self._hint_height = 30
         height = gh * TILE_SIZE_PX + self._hud_height + self._hint_height
 
         if not pygame.get_init():
@@ -84,13 +93,17 @@ class GridWorldRenderer:
 
         # Font for HUD text (bundled Kenney Pixel, with pygame-default fallback)
         pygame.font.init()
-        self._font_large = assets.load_font(18, bold=True)
-        self._font_small = assets.load_font(14)
+        self._font_large = assets.load_font(24, bold=True)
+        self._font_small = assets.load_font(18)
 
         # Smooth interpolation state
         self._agent_pixel: tuple[float, float] | None = None
         self._target_pixel: tuple[float, float] | None = None
         self._lerp_t: float = 1.0  # 1.0 = fully at target
+        # Number of frames the *current* glide was started with. Fixed for
+        # the duration of one glide so changing speed mid-glide can't cause
+        # the agent to jump partway through (see _lerp_frames_for_current_speed).
+        self._lerp_frames: int = LERP_FRAMES
 
         # HUD data injected by caller (trainer.py calls .set_hud_info())
         self._hud: dict = {
@@ -107,8 +120,41 @@ class GridWorldRenderer:
         # Live-run controls (UI-only state, never touches env)
         self._paused: bool = False
         self._speed_multiplier: float = 1.0
-        self._SPEED_STEPS: list[float] = [0.5, 1.0, 2.0, 4.0]
+        self._SPEED_STEPS: list[float] = [0.1, 0.25, 0.5, 1.0, 2.0, 4.0]
         self._restart_requested: bool = False
+
+
+    def _spawn_burst(self, cx: float, cy: float, color: tuple, count: int = 14) -> None:
+        for _ in range(count):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(60, 160)
+            self._particles.append({
+                "x": cx, "y": cy,
+                "vx": math.cos(angle) * speed,
+                "vy": math.sin(angle) * speed,
+                "ttl": random.uniform(0.35, 0.6),
+                "age": 0.0,
+                "color": color,
+            })
+
+    def _update_and_draw_particles(self, dt: float) -> None:
+        alive = []
+        for p in self._particles:
+            p["age"] += dt
+            if p["age"] >= p["ttl"]:
+                continue
+            p["x"] += p["vx"] * dt
+            p["y"] += p["vy"] * dt
+            p["vy"] += 220 * dt
+            alive.append(p)
+        self._particles = alive
+        for p in self._particles:
+            frac_left = 1.0 - (p["age"] / p["ttl"])
+            radius = max(1, int(4 * frac_left))
+            alpha = max(0, int(255 * frac_left))
+            surf = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+            pygame.draw.circle(surf, (*p["color"], alpha), (radius, radius), radius)
+            self._screen.blit(surf, (int(p["x"] - radius), int(p["y"] - radius)))
 
     def set_hud_info(
         self,
@@ -138,6 +184,19 @@ class GridWorldRenderer:
             "speed": speed,
         }
 
+    def _draw_floor(self, gw: int, gh: int, off_y: int) -> None:
+        """Tile a floor sprite across the whole grid if assets/sprites/floor.png
+        exists. Falls back to doing nothing (leaving the plain background fill)
+        if the file is missing -- never crashes, never required."""
+        floor = load_sprite("floor", (TILE_SIZE_PX, TILE_SIZE_PX))
+        if floor is None:
+            return
+        for ty in range(gh):
+            for tx in range(gw):
+                x = tx * TILE_SIZE_PX
+                y = off_y + ty * TILE_SIZE_PX
+                self._screen.blit(floor, (x, y))
+
     def draw(self, env_state: dict) -> None:
         """Draw one frame from a plain-data snapshot.
 
@@ -151,6 +210,9 @@ class GridWorldRenderer:
         gw: int = env_state["grid_w"]
         gh: int = env_state["grid_h"]
         off_y = self._hud_height  # vertical offset for grid (HUD at top)
+
+        self._draw_floor(gw, gh, off_y)
+        dt = self._clock.get_time() / 1000.0 or (1.0 / 60.0)
 
         # --- Grid lines ---
         for col in range(gw + 1):
@@ -217,7 +279,13 @@ class GridWorldRenderer:
         # --- Apples ---
         for ax, ay in env_state["apples"]:
             _draw_tile(ax, ay, COLORS["apple"], shape="circle", margin=8, sprite_name="apple")
-
+        current_apples = set(tuple(a) for a in env_state["apples"])
+        if self._prev_apples is not None:
+            for (ex, ey) in (self._prev_apples - current_apples):
+                px_c = ex * TILE_SIZE_PX + TILE_SIZE_PX // 2
+                py_c = off_y + ey * TILE_SIZE_PX + TILE_SIZE_PX // 2
+                self._spawn_burst(px_c, py_c, COLORS["apple"])
+        self._prev_apples = current_apples
         # --- Key ---
         if env_state.get("key_pos") is not None:
             kx, ky = env_state["key_pos"]
@@ -228,7 +296,12 @@ class GridWorldRenderer:
             cx, cy = env_state["chest_pos"]
             color = COLORS["chest"] if not env_state.get("chest_open") else (80, 200, 80)
             _draw_tile(cx, cy, color, shape="fill", margin=6, sprite_name="chest")
-
+            chest_open_now = bool(env_state.get("chest_open"))
+            if chest_open_now and not self._prev_chest_open:
+                px_c = cx * TILE_SIZE_PX + TILE_SIZE_PX // 2
+                py_c = off_y + cy * TILE_SIZE_PX + TILE_SIZE_PX // 2
+                self._spawn_burst(px_c, py_c, (80, 200, 80), count=24)
+            self._prev_chest_open = chest_open_now
         # --- Monsters ---
         for mx, my in env_state["monsters"]:
             used_sprite = _draw_tile(
@@ -257,13 +330,22 @@ class GridWorldRenderer:
             self._target_pixel = target_px
             self._lerp_t = 1.0
         elif target_px != self._target_pixel:
-            # New target - start lerp from current
+            # New target - start lerp from current. This only fires once per
+            # actual environment move (env_state["agent_pos"] only changes
+            # once per env.step()), so calling draw() again with the *same*
+            # env_state (as the trainer now does, to animate that single
+            # move over several frames) does not restart the glide or
+            # affect its target -- it just advances _lerp_t below. If the
+            # move was blocked by a rock/edge, target_px equals the tile the
+            # agent was already at, so no glide starts at all: the agent can
+            # never appear to slide through a blocked tile.
             self._target_pixel = target_px
             self._lerp_t = 0.0
+            self._lerp_frames = self._lerp_frames_for_current_speed()
 
         # Advance lerp
         if self._lerp_t < 1.0:
-            self._lerp_t = min(1.0, self._lerp_t + 1.0 / LERP_FRAMES)
+            self._lerp_t = min(1.0, self._lerp_t + 1.0 / self._lerp_frames)
         px = _lerp(self._agent_pixel[0], self._target_pixel[0], self._lerp_t)
         py = _lerp(self._agent_pixel[1], self._target_pixel[1], self._lerp_t)
         self._agent_pixel = (px, py)
@@ -280,12 +362,43 @@ class GridWorldRenderer:
 
         # --- HUD panel ---
         self._draw_hud(gw)
+        self._update_and_draw_particles(dt)
 
         # --- Control hint strip ---
         self._draw_hint(gw)
 
         pygame.display.flip()
-        self._clock.tick(60 * self._speed_multiplier)
+        # Rendering always runs at a fixed 60 FPS. Speed is expressed purely
+        # through how many of those frames one tile-to-tile glide takes
+        # (see _lerp_frames_for_current_speed), not by scaling the clock.
+        self._clock.tick(60)
+
+    def _lerp_frames_for_current_speed(self) -> int:
+        """How many render frames the next agent glide should take.
+
+        Baseline (speed=1.0) is LERP_FRAMES frames. Higher speed shortens
+        the glide (agent reaches its new tile sooner -> effectively a
+        faster action rate); lower speed lengthens it. Always at least 1
+        frame so a glide can never take zero (or a negative) frames.
+        """
+        return max(1, round(LERP_FRAMES / self._speed_multiplier))
+
+    @property
+    def agent_animation_complete(self) -> bool:
+        """True once the agent's pixel position has reached its target tile.
+
+        Callers that render one env.step() per call should keep calling
+        draw() with the same (post-step) state snapshot while this is False,
+        so the agent visibly glides to its new tile across several frames
+        instead of jumping there in a single frame.
+        """
+        return self._lerp_t >= 1.0
+
+    def frames_per_step(self) -> int:
+        """Frames to show one env step for at the current speed -- the same
+        budget the agent glide uses, applied whether or not the agent moved
+        so a blocked step or a monster hop is held for the same time."""
+        return self._lerp_frames_for_current_speed()
 
     def _cached_render(
         self,

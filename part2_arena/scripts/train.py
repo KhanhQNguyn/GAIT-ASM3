@@ -50,13 +50,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--style", type=int, choices=[1, 2], required=True)
     parser.add_argument("--algo", type=str, choices=["ppo", "dqn"], required=True)
-    parser.add_argument("--curriculum", type=str, choices=["on", "off"], default="off")
+    parser.add_argument("--curriculum", type=str, choices=["on", "off"], default="on")
     parser.add_argument("--timesteps", type=int, default=300_000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--config",
         type=str,
-        default="tuned_v1",
+        default="tuned_v3",
         help="hyperparameter preset name in config/hyperparams.json (e.g. baseline, tuned_v1)",
     )
     parser.add_argument(
@@ -68,6 +68,17 @@ def parse_args() -> argparse.Namespace:
             "arena/rewards_config.py's value if omitted. Ablation runs are "
             "named 'ablation_style<N>_...' so they can never collide with a "
             "main run's model file or TensorBoard directory."
+        ),
+    )
+    parser.add_argument(
+        "--wall-penalty",
+        type=float,
+        default=None,
+        help=(
+            "override R_WALL_PROXIMITY_PER_STEP for this run; defaults to "
+            "arena/rewards_config.py's value if omitted. Runs with the "
+            "override get a '_wall<N>' name suffix so they can never "
+            "collide with a main run's model file or TensorBoard directory."
         ),
     )
     return parser.parse_args()
@@ -125,6 +136,7 @@ def run_name(
     curriculum: str,
     preset: str = "tuned_v1",
     death_penalty: float | None = None,
+    wall_penalty: float | None = None,
 ) -> str:
     """Single source of truth for a run's identity, used for BOTH the model
     filename and the TensorBoard run name so the two can never drift apart.
@@ -135,11 +147,24 @@ def run_name(
     scripts/plot_reward_decomposition.py::find_log_dir locates runs with a
     prefix glob -- it would then happily read an ablation run's scalars
     while reporting the main run's numbers.
+
+    --wall-penalty runs get a "_wall<N>" suffix: these are MAIN runs (the
+    suffix keeps them from colliding with the canonical name), and a prefix
+    glob would still find them alongside the main run's scalars -- but each
+    wall override value lands in its own directory, so runs are never
+    conflated.
     """
     curriculum_suffix = "_curriculum" if curriculum == "on" else ""
     if death_penalty is None:
-        return f"style{style}_{algo}_{preset}{curriculum_suffix}"
-    return f"ablation_style{style}_{algo}_{preset}{curriculum_suffix}_death{int(death_penalty)}"
+        base = f"style{style}_{algo}_{preset}{curriculum_suffix}"
+    else:
+        base = (
+            f"ablation_style{style}_{algo}_{preset}{curriculum_suffix}"
+            f"_death{int(death_penalty)}"
+        )
+    if wall_penalty is not None:
+        base += f"_wall{wall_penalty:g}"
+    return base
 
 
 def model_save_path(
@@ -148,11 +173,13 @@ def model_save_path(
     curriculum: str,
     preset: str = "tuned_v1",
     death_penalty: float | None = None,
+    wall_penalty: float | None = None,
 ) -> pathlib.Path:
     # Preset is part of the filename so a hyperparameter sweep does not
     # overwrite its own earlier runs; death_penalty likewise keeps an
-    # ablation run from clobbering the real one.
-    return MODELS_DIR / run_name(style, algo, curriculum, preset, death_penalty)
+    # ablation run from clobbering the real one; wall_penalty keeps an
+    # override run from clobbering the canonical one.
+    return MODELS_DIR / run_name(style, algo, curriculum, preset, death_penalty, wall_penalty)
 
 
 def main() -> None:
@@ -169,9 +196,13 @@ def main() -> None:
     # reward function -- if only one is overridden, "best model by eval
     # reward" is selected against a different objective than the one being
     # trained, and the saved best checkpoint is meaningless.
-    reward_overrides = (
-        {"R_DEATH": args.death_penalty} if args.death_penalty is not None else None
-    )
+    reward_overrides: dict[str, float] | None = None
+    if args.death_penalty is not None or args.wall_penalty is not None:
+        reward_overrides = {}
+        if args.death_penalty is not None:
+            reward_overrides["R_DEATH"] = args.death_penalty
+        if args.wall_penalty is not None:
+            reward_overrides["R_WALL_PROXIMITY_PER_STEP"] = args.wall_penalty
     env = Monitor(
         ArenaGymEnv(
             control_style=args.style,
@@ -184,7 +215,12 @@ def main() -> None:
     )
 
     save_path = model_save_path(
-        args.style, args.algo, args.curriculum, args.config, args.death_penalty
+        args.style,
+        args.algo,
+        args.curriculum,
+        args.config,
+        args.death_penalty,
+        args.wall_penalty,
     )
     eval_env = Monitor(
         ArenaGymEnv(
@@ -211,7 +247,12 @@ def main() -> None:
     # name, so it MUST stay in sync with model_save_path (both come from
     # run_name()).
     tb_log_name = run_name(
-        args.style, args.algo, args.curriculum, args.config, args.death_penalty
+        args.style,
+        args.algo,
+        args.curriculum,
+        args.config,
+        args.death_penalty,
+        args.wall_penalty,
     )
     model.learn(total_timesteps=args.timesteps, callback=callback, tb_log_name=tb_log_name)
     model.save(save_path)

@@ -30,16 +30,16 @@ CONFIG_DIR = pathlib.Path(__file__).resolve().parent.parent / "config"
 
 
 def _validate_config(cfg: dict) -> None:
-    alpha = cfg.get("alpha")
-    gamma = cfg.get("gamma")
-    eps_start = cfg.get("epsilon_start")
-    eps_end = cfg.get("epsilon_end")
-    episodes = cfg.get("episodes")
-    if not (0.0 < alpha <= 1.0):
+    alpha: float | None = cfg.get("alpha")
+    gamma: float | None = cfg.get("gamma")
+    eps_start: float | None = cfg.get("epsilon_start")
+    eps_end: float | None = cfg.get("epsilon_end")
+    episodes: int | None = cfg.get("episodes")
+    if alpha is None or not (0.0 < alpha <= 1.0):
         raise ValueError(f"training_config 'alpha' must be in (0, 1], got {alpha!r}")
-    if not (0.0 < gamma <= 1.0):
+    if gamma is None or not (0.0 < gamma <= 1.0):
         raise ValueError(f"training_config 'gamma' must be in (0, 1], got {gamma!r}")
-    if not (0.0 <= eps_end <= eps_start <= 1.0):
+    if eps_end is None or eps_start is None or not (0.0 <= eps_end <= eps_start <= 1.0):
         raise ValueError(
             "training_config needs 0 <= epsilon_end <= epsilon_start <= 1, "
             f"got start={eps_start!r} end={eps_end!r}"
@@ -94,9 +94,12 @@ def _default_csv_log_path(
     level_id: int, algorithm: str, use_intrinsic_reward: bool
 ) -> pathlib.Path:
     """Canonical CSV log location when the caller doesn't pass csv_log_path,
-    mirroring algorithms.MODELS_DIR's part1_gridworld/<dir>/ convention.
+    mirroring algorithms.qtable_path's "level/level<N>/" grouping (per-level
+    runs live in logs/level/level<N>/; the task/comparison scripts write
+    their own logs/<task>/ folders).
     """
-    logs_dir = pathlib.Path(__file__).resolve().parent.parent / "logs"
+    logs_root = pathlib.Path(__file__).resolve().parent.parent / "logs" / "level"
+    logs_dir = logs_root / f"level{level_id}"
     suffix = "_intrinsic" if use_intrinsic_reward else ""
     return logs_dir / f"level{level_id}_{algorithm}{suffix}.csv"
 
@@ -145,6 +148,7 @@ def train(
     rng = set_seed(seed)
     cfg = load_training_config(level_id)
     env = make_env(level_id)
+    env._rng.seed(seed)
     q_table = QTable(n_actions=env.action_space_n)
     tracker = (
         IntrinsicRewardTracker(cfg["intrinsic_reward_strength"]) if use_intrinsic_reward else None
@@ -240,10 +244,16 @@ def train(
                         step=steps, paused=renderer.is_paused,
                         speed=renderer._speed_multiplier,
                     )
-                    renderer.draw(env.get_state_snapshot())
-                    if not renderer.handle_events():
-                        done = True  # window closed - end this episode...
-                        stop_requested = True  # ...and stop training entirely
+                    # pace every env step over the same speed-scaled frame
+                    # budget, whether or not the agent moved (the agent
+                    # glides within it; env.step() is not called again here)
+                    snapshot = env.get_state_snapshot()
+                    for _ in range(renderer.frames_per_step()):
+                        renderer.draw(snapshot)
+                        if not renderer.handle_events():
+                            done = True  # window closed - end this episode...
+                            stop_requested = True  # ...and stop training entirely
+                            break
 
                 state, action = next_state, next_action
 
@@ -256,12 +266,18 @@ def train(
     return q_table
 
 
-def evaluate_policy(env: GridWorldEnv, q_table: QTable, render: bool = True) -> dict:
+def evaluate_policy(
+    env: GridWorldEnv, q_table: QTable, render: bool = True, seed: int = 1
+) -> dict:
     """Run one greedy (epsilon=0) episode with a trained QTable and return a
     summary dict (steps, total_return, died). Used both for the video demo
     ("learned policy, not random" evidence) and for verifying convergence.
+
+    `seed` makes the watch episode reproducible (monster moves + Q-value
+    tie-breaks); default 1 keeps existing callers unchanged.
     """
-    rng = set_seed(0)  # epsilon=0 makes tie-breaking the only randomness left
+    rng = set_seed(seed)  # greedy tie-breaks
+    env._rng.seed(seed)  # monster movement
     renderer: GridWorldRenderer | None = None
     if render:
         renderer = GridWorldRenderer(grid_size=env.grid_size, caption="Watching learned policy")
@@ -310,8 +326,16 @@ def evaluate_policy(env: GridWorldEnv, q_table: QTable, render: bool = True) -> 
                     episode=0, epsilon=0.0, return_=total_return, step=steps,
                     paused=renderer.is_paused, speed=renderer._speed_multiplier,
                 )
-                renderer.draw(env.get_state_snapshot())
-                if not renderer.handle_events():
+                # pace every env step over the same speed-scaled frame budget
+                # (see train()); the agent glides within it
+                snapshot = env.get_state_snapshot()
+                quit_requested = False
+                for _ in range(renderer.frames_per_step()):
+                    renderer.draw(snapshot)
+                    if not renderer.handle_events():
+                        quit_requested = True
+                        break
+                if quit_requested:
                     break
     finally:
         if renderer is not None:
@@ -340,6 +364,7 @@ def evaluate_policy_batch(
     it would rarely reach the chest by chance alone.
     """
     rng = set_seed(seed)
+    env._rng.seed(seed)  # reproducible monster movement (see train() for why)
     successes, steps_list, key_before_chest = 0, [], []
     for _ in range(n_episodes):
         state = env.reset()
@@ -355,6 +380,7 @@ def evaluate_policy_batch(
                 had_key_at_some_step = True
             state, done = result.state, result.done
             steps += 1
+        assert result is not None
         won = result.info.get("cause") == "win"
         successes += int(won)
         steps_list.append(steps)

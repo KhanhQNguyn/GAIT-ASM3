@@ -30,9 +30,14 @@ REWARD_TERM_TAGS = [
     "reward_terms/kill_spawner",
     "reward_terms/phase_progress",
     "reward_terms/damage_taken",
+    "reward_terms/damage_dealt",
     "reward_terms/death",
     "reward_terms/approach_nearest_enemy",
     "reward_terms/shoot_while_no_target",
+    "reward_terms/shoot_toward_enemy",
+    "reward_terms/aimed_hit",
+    "reward_terms/wall_proximity",
+    "reward_terms/time_penalty",
 ]
 REWARD_TERM_FIELDS = [tag.split("/", 1)[-1] for tag in REWARD_TERM_TAGS]
 
