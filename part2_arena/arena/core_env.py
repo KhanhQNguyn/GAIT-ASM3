@@ -18,7 +18,9 @@ merge the two; each one's job is to satisfy a different requirement
 cleanly.
 
 Enemies do NOT fire projectiles in this arena -- they deal contact damage
-and are destroyed on touching the player. Only the player shoots. That
+and PERSIST after touching the player (per-enemy damage cooldown, see
+_resolve_collisions). Only the player shoots; shooting is the only way to
+remove enemies, which is what makes combat the survival strategy. That
 keeps the observation vector at the spec minimum (no "incoming projectile"
 feature) and the mechanics simple. Projectile-vs-enemy and
 projectile-vs-spawner collisions still satisfy the rubric's "projectile
@@ -30,6 +32,7 @@ from __future__ import annotations
 import json
 import math
 import pathlib
+import random
 
 from arena.actions import ControlStyle1, ControlStyle2, action_enum_for_style
 from arena.entities import ArenaState, Enemy, Player, Projectile, Spawner
@@ -37,7 +40,6 @@ from arena.obs import build_observation
 from arena.phases import PhaseManager
 from arena.physics import (
     circle_collision,
-    clamp,
     distance,
     integrate_position,
     relative_direction,
@@ -66,7 +68,7 @@ _DEFAULTS = {
         "max_speed": 6.0,
         "thrust_accel": 0.5,
         "friction": 0.97,
-        "rotate_speed_rad": 0.14,
+        "rotate_speed_rad": 0.20,
         "radius": 14.0,
         "shoot_cooldown_steps": 8,
         "projectile_speed": 12.0,
@@ -74,14 +76,22 @@ _DEFAULTS = {
     },
     "enemy": {
         "radius": 12.0,
-        "contact_damage": 12.0,
-        "base_health": 30.0,
+        "contact_damage": 20.0,
+        "contact_damage_cooldown_steps": 45,
+        "base_health": 25.0,
         "max_concurrent_enemies": 18,
     },
     "spawner": {"radius": 18.0, "base_health": 120.0},
 }
 
-_PROJECTILE_RADIUS = 4.0
+# 2026-09-08: doubled from 4.0 to 8.0 (visual radius kept in sync in
+# render_pygame.py). Style 2's aim is coupled to its movement (projectiles
+# fire along the velocity direction, which is cardinal-only), so the hit
+# cone is what makes jousting -- charging an enemy head-on along an axis
+# while firing -- learnable at all: a 4px bullet gives only a ~6 deg cone
+# at 300px range, too tight for PPO to discover. 8px roughly doubles it.
+# Style 1 rotates freely and loses nothing.
+_PROJECTILE_RADIUS = 8.0
 _SPAWNER_MARGIN = 90.0
 
 
@@ -134,6 +144,7 @@ class ArenaCoreEnv:
         self.state: ArenaState | None = None
         self._current_enemy_speed = 1.6
         self._shot_no_target_flag = False
+        self._shot_toward_enemy_flag = 0.0
         # transient per-step data exposed for rendering / debugging
         self._last_obs = None
         self._last_step_events: dict = self._empty_step_events()
@@ -142,6 +153,17 @@ class ArenaCoreEnv:
         # fed back into step_events so compute_reward() can enforce its
         # per-episode cap (see arena/rewards.py APPROACH_REWARD_EPISODE_CAP).
         self._cumulative_approach_reward: float = 0.0
+        # running per-episode total of (kill_spawner + phase_progress), fed
+        # back into step_events for PROGRESS_REWARD_EPISODE_CAP. That cap is
+        # DISABLED (+inf) as of 2026-09-08e -- it clamped spec-required
+        # reward terms (see rewards.py) -- so this is inert plumbing kept
+        # (like _cumulative_approach_reward) for a one-line re-enable.
+        self._cumulative_progress_reward: float = 0.0
+        # total player shots actually fired this episode (cooldown was clear).
+        # scripts/eval_aim_stats.py diffs this instead of len(projectiles),
+        # which silently drops shots that collide the same step they fire
+        # (2026-09-08d, BUG_LESS_ATTACK.md fix D).
+        self._shots_fired: int = 0
         # Optional {constant_name: value} replacements handed to
         # rewards.compute_reward on every step -- training-time only, used
         # by scripts/train.py --death-penalty for the R_DEATH ablation
@@ -155,9 +177,14 @@ class ArenaCoreEnv:
 
         Layout: the player starts at the arena centre (symmetric, room to
         manoeuvre in every direction, neither control style advantaged);
-        phase-0 spawners are placed at evenly-spaced points on an inset
-        ellipse around the centre; no enemies or projectiles yet.
+        phase-0 spawners are placed at RANDOM points inside the spawn margins
+        (rejection-sampled to keep a minimum distance from the player's
+        centre start), using the RNG seeded by `seed` -- pass the same seed
+        to get the identical layout back (Gymnasium determinism contract,
+        exercised by the env_checker tests); leave it None for fresh layouts
+        every episode, which is what training wants for variety.
         """
+        self._rng = random.Random(seed)
         self.phase_manager.phase = 0
         player = Player(
             x=self.arena_width / 2.0,
@@ -172,9 +199,12 @@ class ArenaCoreEnv:
         self.state.phase = 0
         self.state.step_count = 0
         self._shot_no_target_flag = False
+        self._shot_toward_enemy_flag = 0.0
         self._render_events = []
         self._last_step_events = self._empty_step_events()
         self._cumulative_approach_reward = 0.0
+        self._cumulative_progress_reward = 0.0
+        self._shots_fired = 0
 
         obs = build_observation(self.state, self.arena_width, self.arena_height)
         self._last_obs = obs
@@ -225,13 +255,15 @@ class ArenaCoreEnv:
                                                            #   SHOT_NO_TARGET_RADIUS (or none)
             }
 
-        Plus two OPTIONAL keys feeding Member D's R_APPROACH_NEAREST_ENEMY
-        gate/cap (see arena/rewards.py::compute_reward's docstring --
-        defaults there make these a no-op if omitted, but this class
-        populates them for real): "nearest_enemy_distance" (float, the
-        post-move distance to the nearest enemy, or +inf if none) and
-        "cumulative_approach_reward" (float, this episode's running total
-        of approach_nearest_enemy BEFORE this step).
+        Plus OPTIONAL keys feeding compute_reward's per-episode caps (see
+        its docstring -- defaults there make each cap a no-op if omitted,
+        but this class populates them for real): "nearest_enemy_distance"
+        (float, post-move distance to the nearest enemy, or +inf if none)
+        and "cumulative_approach_reward" (float, this episode's running
+        total of approach_nearest_enemy BEFORE this step) for
+        R_APPROACH_NEAREST_ENEMY; "cumulative_progress_reward" (float, this
+        episode's running total of kill_enemy + kill_spawner +
+        phase_progress BEFORE this step) for PROGRESS_REWARD_EPISODE_CAP.
         """
         if self.state is None:
             raise RuntimeError("ArenaCoreEnv.step() called before reset()")
@@ -254,10 +286,14 @@ class ArenaCoreEnv:
 
         # 3-4. projectiles, collisions, damage
         self._advance_projectiles()
-        enemies_killed, spawners_killed, dmg_taken = self._resolve_collisions()
+        enemies_killed, spawners_killed, dmg_taken, dmg_dealt, aimed_hit_sum = (
+            self._resolve_collisions()
+        )
         ev["enemies_killed"] = enemies_killed
         ev["spawners_killed"] = spawners_killed
         ev["damage_taken"] = dmg_taken
+        ev["damage_dealt"] = dmg_dealt
+        ev["aimed_hit_alignment_sum"] = aimed_hit_sum
 
         new_nearest = self._nearest_enemy_distance()
         if prev_nearest is not None and new_nearest is not None:
@@ -266,8 +302,26 @@ class ArenaCoreEnv:
             ev["distance_delta_to_nearest_enemy"] = 0.0
         ev["nearest_enemy_distance"] = new_nearest if new_nearest is not None else float("inf")
         ev["cumulative_approach_reward"] = self._cumulative_approach_reward
+        ev["cumulative_progress_reward"] = self._cumulative_progress_reward
 
         ev["shot_fired_with_no_target"] = self._shot_no_target_flag
+        ev["shot_toward_enemy"] = self._shot_toward_enemy_flag
+
+        # Distances to the nearest and SECOND-nearest wall, for the
+        # wall-proximity shaping term (see rewards_config.py
+        # R_WALL_PROXIMITY_PER_STEP): summing the two ramps makes a corner
+        # cost ~2x a straight wall automatically -- the "stuck in corner"
+        # deterrent without a separate harsh penalty.
+        wall_ds = sorted(
+            (
+                float(p.x),
+                float(p.y),
+                self.arena_width - float(p.x),
+                self.arena_height - float(p.y),
+            )
+        )
+        ev["wall_distance"] = wall_ds[0]
+        ev["wall_distance_second"] = wall_ds[1]
 
         # 5. phase system
         if self.phase_manager.maybe_advance_phase(st.spawners):
@@ -288,6 +342,9 @@ class ArenaCoreEnv:
         obs = build_observation(st, self.arena_width, self.arena_height)
         rb = compute_reward(ev, self._reward_overrides)
         self._cumulative_approach_reward += rb.approach_nearest_enemy
+        # kill_enemy is intentionally excluded -- it is uncapped (2026-09-08d,
+        # BUG_LESS_ATTACK.md); only phase/spawner progression is capped.
+        self._cumulative_progress_reward += rb.kill_spawner + rb.phase_progress
         self._last_obs = obs
         self._last_step_events = ev
         info = {
@@ -322,11 +379,17 @@ class ArenaCoreEnv:
             "spawners_killed": 0,
             "phase_advanced": False,
             "damage_taken": 0.0,
+            "damage_dealt": 0.0,
             "died": False,
             "distance_delta_to_nearest_enemy": 0.0,
             "nearest_enemy_distance": float("inf"),
             "cumulative_approach_reward": 0.0,
+            "cumulative_progress_reward": 0.0,
             "shot_fired_with_no_target": False,
+            "shot_toward_enemy": 0.0,
+            "wall_distance": float("inf"),
+            "wall_distance_second": float("inf"),
+            "aimed_hit_alignment_sum": 0.0,
         }
 
     def _nearest_enemy_distance(self) -> float | None:
@@ -336,20 +399,33 @@ class ArenaCoreEnv:
         p = st.player
         return min(distance(p.x, p.y, e.x, e.y) for e in st.enemies)
 
+    def _nearest_enemy(self):
+        """The nearest living enemy entity, or None if there are none."""
+        st = self.state
+        if not st.enemies:
+            return None
+        p = st.player
+        return min(st.enemies, key=lambda e: distance(p.x, p.y, e.x, e.y))
+
     def _spawn_phase_spawners(self, phase: int) -> None:
         cfg = self.phase_manager.difficulty_for_phase(phase)
         self._current_enemy_speed = cfg.enemy_speed
         n = max(1, cfg.num_spawners)
-        cx, cy = self.arena_width / 2.0, self.arena_height / 2.0
-        rx = max(1.0, cx - _SPAWNER_MARGIN)
-        ry = max(1.0, cy - _SPAWNER_MARGIN)
+        lo_x, hi_x = _SPAWNER_MARGIN, self.arena_width - _SPAWNER_MARGIN
+        lo_y, hi_y = _SPAWNER_MARGIN, self.arena_height - _SPAWNER_MARGIN
+        # Rejection-sample spawner positions so none spawns on top of the
+        # player (who starts at the arena centre). RNG comes from reset(seed)
+        # so layouts are reproducible under a fixed seed and varied otherwise.
+        rng = getattr(self, "_rng", None) or random.Random()
+        px, py = self.arena_width / 2.0, self.arena_height / 2.0
+        min_player_dist = 150.0
         spawners = []
-        for k in range(n):
-            ang = 2.0 * math.pi * k / n - math.pi / 2.0
-            lo_x, hi_x = _SPAWNER_MARGIN, self.arena_width - _SPAWNER_MARGIN
-            lo_y, hi_y = _SPAWNER_MARGIN, self.arena_height - _SPAWNER_MARGIN
-            sx = clamp(cx + math.cos(ang) * rx, lo_x, hi_x)
-            sy = clamp(cy + math.sin(ang) * ry, lo_y, hi_y)
+        for _ in range(n):
+            for _attempt in range(20):
+                sx = rng.uniform(lo_x, hi_x)
+                sy = rng.uniform(lo_y, hi_y)
+                if distance(sx, sy, px, py) >= min_player_dist:
+                    break
             spawners.append(
                 Spawner(
                     x=sx,
@@ -369,6 +445,7 @@ class ArenaCoreEnv:
         pc = self._pcfg
         max_speed = float(pc["max_speed"])
         self._shot_no_target_flag = False
+        self._shot_toward_enemy_flag = 0.0
 
         try:
             act = self.action_enum(action)
@@ -407,18 +484,31 @@ class ArenaCoreEnv:
                 p.vx, p.vy = max_speed, 0.0
             elif act is ControlStyle2.SHOOT:
                 self._try_shoot()
-                # keep moving while firing? no -- style 2 stops unless a move
-                # action is held. SHOOT does not move.
-                p.vx, p.vy = 0.0, 0.0
+                # 2026-08-28 design change: SHOOT no longer hard-stops the
+                # player -- velocity is PRESERVED, so the player glides in
+                # its last direction while firing (kiting). Previously SHOOT
+                # zeroed velocity, which made open-field shooting a sitting
+                # duck and taught the policy to use walls as firing positions
+                # (measured: 84-92% of style-2 eval steps spent hugging
+                # walls). NO_OP is still the deliberate brake. Matches
+                # style 1, where SHOOT also lets the ship coast.
             else:  # NO_OP / None -> snappy stop
                 p.vx, p.vy = 0.0, 0.0
 
-            # keep `orientation` aimed along the last non-zero move so SHOOT
-            # has a direction; leave it untouched on NO_OP / SHOOT.
+            # keep `orientation` aimed along the current velocity so SHOOT
+            # fires where the player is heading (also gives glide-shooting a
+            # coherent direction after the 2026-08-28 SHOOT-preserves-velocity
+            # change); leave it untouched on a hard stop (NO_OP).
             if (p.vx, p.vy) != (0.0, 0.0):
                 p.orientation = math.atan2(p.vy, p.vx)
 
-        # integrate + clamp to the arena
+        # integrate + clamp to the arena. Zero ONLY the axis that hit a wall
+        # (wall-tangent slide: a glancing approach keeps sliding along the
+        # wall, only a head-on or into-a-corner approach dead-stops). For
+        # style 1 the remaining escape cost is reorientation -- pc
+        # ["rotate_speed_rad"] was raised 0.14 -> 0.2 on 2026-09-08c
+        # (FIX_PART2.md symptom 4: style-1 policies nosed into a wall while
+        # being swarmed and took ~22 rotate steps to turn away; ~16 now).
         nx, ny = integrate_position(p.x, p.y, p.vx, p.vy, 1.0)
         cx, cy = wrap_or_clamp_to_bounds(nx, ny, self.arena_width, self.arena_height)
         if cx != nx:
@@ -433,7 +523,21 @@ class ArenaCoreEnv:
         pc = self._pcfg
         if p.shoot_cooldown > 0:
             return
+        self._shots_fired += 1
         spd = float(pc["projectile_speed"])
+
+        # Fire-time aim alignment, stamped on the projectile so
+        # R_AIMED_HIT_BONUS can pay for INTENDED hits only (an alignment of
+        # ~0 means the hit, if any, was luck). `_shot_toward_enemy_flag` is
+        # also set from it for the (now disabled, 2026-09-08d)
+        # R_SHOOT_TOWARD_ENEMY term and for eval instrumentation. Objective
+        # is the nearest enemy within SHOT_NO_TARGET_RADIUS, else the
+        # nearest active spawner -- see _graded_aim_alignment.
+        alignment = self._graded_aim_alignment()
+
+        # The same graded value is stamped onto the projectile so
+        # R_AIMED_HIT_BONUS can pay for INTENDED hits only (an alignment of
+        # ~0 means the hit, if any, was luck).
         st.projectiles.append(
             Projectile(
                 x=p.x,
@@ -442,11 +546,42 @@ class ArenaCoreEnv:
                 vy=math.sin(p.orientation) * spd,
                 owner="player",
                 damage=float(pc["projectile_damage"]),
+                aim_alignment=alignment,
             )
         )
         p.shoot_cooldown = int(pc["shoot_cooldown_steps"])
         nd = self._nearest_enemy_distance()
         self._shot_no_target_flag = (nd is None) or (nd > SHOT_NO_TARGET_RADIUS)
+        self._shot_toward_enemy_flag = alignment
+
+    def _graded_aim_alignment(self) -> float:
+        """Graded alignment of the player's CURRENT facing with its current
+        objective (nearest in-range enemy, else nearest active spawner), in
+        [0, 1]. See _try_shoot's comment for the design rationale.
+        """
+        st = self.state
+        p = st.player
+        ne = self._nearest_enemy()
+        if ne is not None:
+            d = distance(p.x, p.y, ne.x, ne.y)
+            if d <= SHOT_NO_TARGET_RADIUS:
+                target_x, target_y = ne.x, ne.y
+                aimed_at_objective = True
+            else:
+                aimed_at_objective = False
+        else:
+            aimed_at_objective = False
+        if not aimed_at_objective and st.spawners:
+            active = [s for s in st.spawners if s.active]
+            if active:
+                sp = min(active, key=lambda s: distance(p.x, p.y, s.x, s.y))
+                target_x, target_y = sp.x, sp.y
+                aimed_at_objective = True
+        if not aimed_at_objective:
+            return 0.0
+        ang_to_target = relative_direction(p.x, p.y, target_x, target_y)
+        diff = abs((ang_to_target - p.orientation + math.pi) % (2 * math.pi) - math.pi)
+        return max(0.0, math.cos(diff))
 
     def _advance_enemies(self) -> None:
         st = self.state
@@ -486,7 +621,7 @@ class ArenaCoreEnv:
             pr for pr in st.projectiles if -20.0 <= pr.x <= w + 20.0 and -20.0 <= pr.y <= h + 20.0
         ]
 
-    def _resolve_collisions(self) -> tuple[int, int, float]:
+    def _resolve_collisions(self) -> tuple[int, int, float, float, float]:
         st = self.state
         p = st.player
         p_r = float(self._pcfg["radius"])
@@ -496,14 +631,21 @@ class ArenaCoreEnv:
         enemies_killed = 0
         spawners_killed = 0
         dmg_taken = 0.0
-
+        dmg_dealt = 0.0
+        # Sum of the graded aim alignment of every player projectile that
+        # hits an objective this step (see R_AIMED_HIT_BONUS in
+        # rewards_config.py) -- pays for intended hits, not lucky ones.
+        aimed_hit_sum = 0.0
         # player projectiles vs enemies / spawners (one hit consumes the shot)
         surviving = []
         for pr in st.projectiles:
             hit = False
             for e in st.enemies:
                 if e.health > 0 and circle_collision(pr.x, pr.y, _PROJECTILE_RADIUS, e.x, e.y, e_r):
+                    dealt = min(pr.damage, e.health)  # no overkill credit
                     e.health -= pr.damage
+                    dmg_dealt += dealt
+                    aimed_hit_sum += pr.aim_alignment
                     hit = True
                     if e.health <= 0:
                         enemies_killed += 1
@@ -514,6 +656,7 @@ class ArenaCoreEnv:
                     if s.active and circle_collision(pr.x, pr.y, _PROJECTILE_RADIUS, s.x, s.y, s_r):
                         s.health -= pr.damage
                         hit = True
+                        aimed_hit_sum += pr.aim_alignment
                         if s.health <= 0:
                             s.active = False
                             spawners_killed += 1
@@ -524,18 +667,27 @@ class ArenaCoreEnv:
         st.projectiles = surviving
         st.enemies = [e for e in st.enemies if e.health > 0]
 
-        # enemy-player contact: enemy is destroyed and deals contact damage once
+        # enemy-player contact (NON-KAMIKAZE, 2026-08-28 design change): an
+        # enemy deals contact damage ONCE, enters a per-enemy damage cooldown,
+        # SURVIVES, and keeps chasing. With the old kamikaze rule the enemy
+        # died on touching the player, so camping let enemies suicide into you
+        # and shooting was never needed for survival -- every trained policy
+        # converged to corner-camping with zero kills. Persisting enemies make
+        # shooting the only way to reduce incoming threat. Enemies still only
+        # die from player projectiles, so enemies_killed remains projectile-
+        # kills-only (no kill credit for contact -- see rewards_config.py).
         contact = float(self._ecfg["contact_damage"])
-        still_alive = []
+        cooldown = int(self._ecfg["contact_damage_cooldown_steps"])
         for e in st.enemies:
+            if e.damage_cooldown > 0:
+                e.damage_cooldown -= 1
+                continue
             if circle_collision(p.x, p.y, p_r, e.x, e.y, e_r):
                 p.health -= contact
                 dmg_taken += contact
+                e.damage_cooldown = cooldown
                 self._render_events.append(("player_hit",))
-            else:
-                still_alive.append(e)
-        st.enemies = still_alive
         if p.health < 0.0:
             p.health = 0.0
 
-        return enemies_killed, spawners_killed, dmg_taken
+        return enemies_killed, spawners_killed, dmg_taken, dmg_dealt, aimed_hit_sum

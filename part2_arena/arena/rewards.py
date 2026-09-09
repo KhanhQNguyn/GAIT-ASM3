@@ -15,13 +15,15 @@ VALUES in rewards_config.py and tests/test_reward_terms.py.
 
 Final reward-shaping decision: see rewards_config.py's per-constant
 docstrings (dated team decision) -- do not reintroduce unresolved language
-here. Both optional shaping terms are RATIFIED as-is:
-R_APPROACH_NEAREST_ENEMY stays at 0.01 (gated outside engage range and
-capped per-episode at APPROACH_REWARD_EPISODE_CAP, so it can never
-out-earn a single kill) and R_SHOOT_WHILE_NO_TARGET stays disabled at 0.0.
-Member C's alternative recommendation (drop both to 0.0, per
-docs/message.txt) was considered and not adopted; the disagreement is
-recorded in docs/DECISIONS.md rather than left open in this docstring.
+here. RATIFIED as of the 2026-08-28 rebalance: R_APPROACH_NEAREST_ENEMY
+DISABLED at 0.0 (machinery retained + tested) and R_SHOOT_WHILE_NO_TARGET
+disabled at 0.0, replaced by two ACTIVE shaping terms --
+R_DAMAGE_DEALT_PER_HP (dense per-hit signal; the fix for the degenerate
+corner-camping policies that never learned to shoot) and
+R_TIME_STEP_PENALTY (makes passivity costly). Member C's original
+recommendation (drop approach to 0.0) was ultimately adopted by this
+rebalance; the earlier disagreement history is still recorded in
+docs/DECISIONS.md.
 R_DEATH is decided too -- KEPT at -100.0; see rewards_config.py::R_DEATH's
 docstring for the ablation evidence and rationale.
 -------------------------------------------------------------------------
@@ -32,14 +34,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from arena.rewards_config import (
+    R_AIMED_HIT_BONUS,
     R_APPROACH_NEAREST_ENEMY,
+    R_DAMAGE_DEALT_PER_HP,
     R_DAMAGE_TAKEN_PER_HP,
     R_DEATH,
     R_KILL_ENEMY,
     R_KILL_SPAWNER,
     R_PHASE_PROGRESS,
+    R_SHOOT_TOWARD_ENEMY,
     R_SHOOT_WHILE_NO_TARGET,
+    R_TIME_STEP_PENALTY,
+    R_WALL_PROXIMITY_PER_STEP,
     SHOT_NO_TARGET_RADIUS,
+    WALL_PROXIMITY_MARGIN,
 )
 
 # Per-episode cap on R_APPROACH_NEAREST_ENEMY's cumulative contribution (see
@@ -47,6 +55,35 @@ from arena.rewards_config import (
 # equal to R_KILL_ENEMY so this shaping term can never out-earn a single
 # real kill, however long the agent loiters near an enemy.
 APPROACH_REWARD_EPISODE_CAP: float = R_KILL_ENEMY
+
+# Per-episode cap on the PROGRESSION reward an episode can bank
+# (phase_progress + kill_spawner, cumulative -- NOT kill_enemy). DISABLED
+# (2026-09-08e): set to +inf so it never binds; the clamp code below and the
+# core_env running-total plumbing are RETAINED (and monkeypatch-tested) so a
+# re-enable is a one-line change to a finite value.
+#
+# History: 2026-09-08c added it at abs(R_DEATH) to stop a "rush to a high
+# phase, bank ~3 * R_PHASE_PROGRESS, then die" glass-cannon; 2026-09-08d
+# narrowed it to phase_progress + kill_spawner (kill_enemy uncapped so the
+# agent keeps fighting).
+#
+# DECISION to disable (2026-09-08e, see FIX_PART2.md / BUG_LESS_ATTACK.md):
+# phase_progress and kill_spawner are two of the FIVE reward terms the spec
+# REQUIRES (assessment_requirements_summary.md section 5: "positive reward
+# for progressing to the next phase", "larger positive reward for destroying
+# spawners"). Clamping a required term for ~70% of the episode is a bigger
+# deviation from section 5 than any optional shaping, and a Part II-J
+# ("reward structure") risk -- the trained agent was destroying ~4 spawners
+# per episode but only being paid for ~1.4. An agent that aggressively
+# clears phases and eventually dies to the difficulty ramp is the
+# spec-intended arcade behaviour and a stronger phase-system demo than one
+# that camps a low phase to the step cap. The glass-cannon is now shaped
+# only through the spec's own negative terms (R_DEATH, R_DAMAGE_TAKEN_PER_HP)
+# plus the hostile world.
+#
+# Mirrors APPROACH_REWARD_EPISODE_CAP; the caller (core_env) tracks the
+# running total in step_events["cumulative_progress_reward"].
+PROGRESS_REWARD_EPISODE_CAP: float = float("inf")
 
 
 @dataclass
@@ -60,9 +97,14 @@ class RewardBreakdown:
     kill_spawner: float = 0.0
     phase_progress: float = 0.0
     damage_taken: float = 0.0
+    damage_dealt: float = 0.0
     death: float = 0.0
     approach_nearest_enemy: float = 0.0
     shoot_while_no_target: float = 0.0
+    shoot_toward_enemy: float = 0.0
+    aimed_hit: float = 0.0
+    wall_proximity: float = 0.0
+    time_penalty: float = 0.0
 
     @property
     def total(self) -> float:
@@ -71,9 +113,14 @@ class RewardBreakdown:
             + self.kill_spawner
             + self.phase_progress
             + self.damage_taken
+            + self.damage_dealt
             + self.death
             + self.approach_nearest_enemy
             + self.shoot_while_no_target
+            + self.shoot_toward_enemy
+            + self.aimed_hit
+            + self.wall_proximity
+            + self.time_penalty
         )
 
 
@@ -93,6 +140,8 @@ def compute_reward(
             "spawners_killed":                 int,    # spawners destroyed this step
             "phase_advanced":                  bool,   # phase incremented this step
             "damage_taken":                    float,  # player HP lost this step, >= 0
+            "damage_dealt":                    float,  # enemy HP removed by player
+                                                       #   projectiles this step, >= 0
             "died":                            bool,   # player HP reached 0 this step
             "distance_delta_to_nearest_enemy": float,  # signed; < 0 means the player
                                                        #   got closer to the nearest
@@ -103,6 +152,36 @@ def compute_reward(
                                                        #   farther than
                                                        #   SHOT_NO_TARGET_RADIUS (or
                                                        #   no enemy existed)
+            "shot_toward_enemy":               float,  # GRADED (2026-09-08) alignment
+                                                       #   of the shot fired this step
+                                                       #   with its objective, in
+                                                       #   [0, 1] = max(0, cos of the
+                                                       #   angle between shot
+                                                       #   direction and the nearest
+                                                       #   enemy within
+                                                       #   SHOT_NO_TARGET_RADIUS or --
+                                                       #   when none is in range --
+                                                       #   the nearest active spawner).
+                                                       #   Bool True/False still
+                                                       #   honoured as 1.0/0.0.
+            "aimed_hit_alignment_sum":         float,  # sum of the graded aim alignment
+                                                       #   (max(0, cos of angle to
+                                                       #   objective), each in [0,1])
+                                                       #   of every player projectile
+                                                       #   that HIT an enemy or
+                                                       #   spawner this step; 0.0 if
+                                                       #   none hit (drives
+                                                       #   R_AIMED_HIT_BONUS)
+            "wall_distance":                   float,  # distance from the player to
+                                                       #   the nearest arena wall
+                                                       #   this step, >= 0 (drives the
+                                                       #   wall-proximity penalty)
+            "wall_distance_second":            float,  # distance to the SECOND-nearest
+                                                       #   wall this step, >= 0; the
+                                                       #   wall penalty sums both ramps
+                                                       #   so corners cost ~2x a wall
+                                                       #   (missing key = no extra
+                                                       #   penalty, safe default)
         }
 
     Every key is always present. Missing keys are treated as 0 / False so a
@@ -123,12 +202,23 @@ def compute_reward(
             EPISODE, BEFORE this step -- the caller must track this across
             steps for the per-episode cap, APPROACH_REWARD_EPISODE_CAP, to
             actually bind)
+        "cumulative_progress_reward" float, default 0.0
+            (running total of kill_spawner + phase_progress already awarded
+            THIS EPISODE, BEFORE this step. Feeds PROGRESS_REWARD_EPISODE_CAP,
+            which is currently DISABLED (+inf) -- 2026-09-08e: it clamped two
+            spec-required reward terms, see the constant's comment -- so this
+            key is inert plumbing kept for a one-line re-enable.)
 
     Term mapping:
         kill_enemy             = R_KILL_ENEMY            * enemies_killed
         kill_spawner           = R_KILL_SPAWNER          * spawners_killed
         phase_progress         = R_PHASE_PROGRESS        * phase_advanced
+        (All three are paid in full -- PROGRESS_REWARD_EPISODE_CAP is +inf.
+         When re-enabled to a finite value, kill_spawner + phase_progress --
+         never kill_enemy -- scale down together so the episode running total
+         never exceeds it; FIX_PART2.md / BUG_LESS_ATTACK.md.)
         damage_taken            = R_DAMAGE_TAKEN_PER_HP  * damage_taken  (already negative)
+        damage_dealt            = R_DAMAGE_DEALT_PER_HP  * damage_dealt
         death                  = R_DEATH                 * died
         approach_nearest_enemy = R_APPROACH_NEAREST_ENEMY * max(-distance_delta, 0),
                                   gated to only pay out while
@@ -136,12 +226,26 @@ def compute_reward(
                                   and clamped so cumulative_approach_reward +
                                   this step's amount never exceeds
                                   APPROACH_REWARD_EPISODE_CAP
+                                  (currently DISABLED: the constant is 0.0, so
+                                  this term is always 0 -- machinery retained)
         shoot_while_no_target  = R_SHOOT_WHILE_NO_TARGET * shot_fired_with_no_target
+        shoot_toward_enemy     = R_SHOOT_TOWARD_ENEMY     * graded shot_toward_enemy
+        aimed_hit              = R_AIMED_HIT_BONUS        * aimed_hit_alignment_sum
+                                 (sum of the fire-time graded alignment of every
+                                 projectile that actually hit an objective this
+                                 step -- pays INTENDED hits, not lucky ones)
+        wall_proximity         = R_WALL_PROXIMITY_PER_STEP
+                                 * (ramp(wall_distance) + ramp(wall_distance_second)),
+                                 where ramp(d) = max(0, 1 - d / WALL_PROXIMITY_MARGIN):
+                                 cornering costs ~2x a straight wall
+        time_penalty           = R_TIME_STEP_PENALTY     (unconditional, every step)
 
     `reward_overrides` (optional): a {constant_name: value} dict that
-    replaces a reward constant for this call only. Currently only
-    "R_DEATH" is honoured -- it exists so scripts/train.py --death-penalty
-    can run a real R_DEATH ablation (docs/KHANG.md C.3). This module still
+    replaces a reward constant for this call only. Currently "R_DEATH" and
+    "R_WALL_PROXIMITY_PER_STEP" are honoured -- they exist so scripts/train.py
+    --death-penalty / --wall-penalty can run real ablations
+    (docs/KHANG.md C.3; the wall override is how the style-2 run separates
+    wall-avoidance shaping from spawner discovery). This module still
     computes every reward number (Global Invariant #1); the override is a
     call-time substitution read inside this function, not reward math
     happening somewhere else. Unknown keys are ignored. Note that
@@ -152,6 +256,7 @@ def compute_reward(
     ev = step_events or {}
     overrides = reward_overrides or {}
     r_death = float(overrides.get("R_DEATH", R_DEATH))
+    r_wall = float(overrides.get("R_WALL_PROXIMITY_PER_STEP", R_WALL_PROXIMITY_PER_STEP))
     delta = float(ev.get("distance_delta_to_nearest_enemy", 0.0))
     nearest_enemy_distance = float(ev.get("nearest_enemy_distance", float("inf")))
     cumulative_approach_reward = float(ev.get("cumulative_approach_reward", 0.0))
@@ -162,14 +267,46 @@ def compute_reward(
         remaining_budget = max(0.0, APPROACH_REWARD_EPISODE_CAP - cumulative_approach_reward)
         approach_nearest_enemy = min(raw_approach_reward, remaining_budget)
 
+    # The three section-5 progression rewards. All UNCAPPED as of 2026-09-08e
+    # (PROGRESS_REWARD_EPISODE_CAP is +inf -- see its comment). The clamp
+    # below is retained, and still exercised via monkeypatch tests, so a
+    # re-enable is one finite value: it scales phase_progress + kill_spawner
+    # (never kill_enemy) down together once the episode's running total would
+    # exceed the cap. cumulative_progress_reward defaults to 0.0.
+    kill_enemy = R_KILL_ENEMY * int(ev.get("enemies_killed", 0))
+    kill_spawner = R_KILL_SPAWNER * int(ev.get("spawners_killed", 0))
+    phase_progress = R_PHASE_PROGRESS * (1.0 if ev.get("phase_advanced") else 0.0)
+    raw_progress = kill_spawner + phase_progress
+    if raw_progress > 0.0:
+        cumulative_progress = float(ev.get("cumulative_progress_reward", 0.0))
+        remaining_progress = max(0.0, PROGRESS_REWARD_EPISODE_CAP - cumulative_progress)
+        if raw_progress > remaining_progress:
+            scale = remaining_progress / raw_progress
+            kill_spawner *= scale
+            phase_progress *= scale
+
     return RewardBreakdown(
-        kill_enemy=R_KILL_ENEMY * int(ev.get("enemies_killed", 0)),
-        kill_spawner=R_KILL_SPAWNER * int(ev.get("spawners_killed", 0)),
-        phase_progress=R_PHASE_PROGRESS * (1.0 if ev.get("phase_advanced") else 0.0),
+        kill_enemy=kill_enemy,
+        kill_spawner=kill_spawner,
+        phase_progress=phase_progress,
         damage_taken=R_DAMAGE_TAKEN_PER_HP * float(ev.get("damage_taken", 0.0)),
+        damage_dealt=R_DAMAGE_DEALT_PER_HP * float(ev.get("damage_dealt", 0.0)),
         death=r_death * (1.0 if ev.get("died") else 0.0),
         approach_nearest_enemy=approach_nearest_enemy,
         shoot_while_no_target=(
             R_SHOOT_WHILE_NO_TARGET * (1.0 if ev.get("shot_fired_with_no_target") else 0.0)
         ),
+        shoot_toward_enemy=(
+            R_SHOOT_TOWARD_ENEMY * float(ev.get("shot_toward_enemy", 0.0))
+        ),
+        aimed_hit=R_AIMED_HIT_BONUS * float(ev.get("aimed_hit_alignment_sum", 0.0)),
+        wall_proximity=r_wall
+        * (
+            max(0.0, 1.0 - float(ev.get("wall_distance", float("inf"))) / WALL_PROXIMITY_MARGIN)
+            + max(
+                0.0,
+                1.0 - float(ev.get("wall_distance_second", float("inf"))) / WALL_PROXIMITY_MARGIN,
+            )
+        ),
+        time_penalty=R_TIME_STEP_PENALTY,
     )
