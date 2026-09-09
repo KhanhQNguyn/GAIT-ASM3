@@ -24,7 +24,10 @@ remove enemies, which is what makes combat the survival strategy. That
 keeps the observation vector at the spec minimum (no "incoming projectile"
 feature) and the mechanics simple. Projectile-vs-enemy and
 projectile-vs-spawner collisions still satisfy the rubric's "projectile
-collisions" requirement.
+collisions" requirement. Rendering side channel: _render_events carries
+("kill", x, y), ("hit", x, y) (projectile damaged an enemy -- drives the
+renderer's explosion animation), and ("player_hit",) events; all are
+consumed by render_pygame.py only, never by game logic.
 """
 
 from __future__ import annotations
@@ -646,6 +649,9 @@ class ArenaCoreEnv:
                     e.health -= pr.damage
                     dmg_dealt += dealt
                     aimed_hit_sum += pr.aim_alignment
+                    # Render-only effect: the renderer plays its explosion
+                    # animation on every enemy hit, not just kills.
+                    self._render_events.append(("hit", e.x, e.y))
                     hit = True
                     if e.health <= 0:
                         enemies_killed += 1

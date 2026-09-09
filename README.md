@@ -117,6 +117,19 @@ fraction of shots within 30 deg of the enemy bearing, damage dealt/taken,
 kills, wall-hugging step fraction, phase reached. Use `--checkpoint best`
 for the EvalCallback's best-by-eval-reward save instead of the final model.
 
+### Part II - assets & animations
+
+Sprite/animation assets live in `part2_arena/assets/` (convention documented
+in `part2_arena/assets/README.md`). The renderer loads them automatically:
+enemy 5-frame turn animation (`l2-l1-m-r1-r2`, swept in order on direction
+flips), an 11-frame explosion on every enemy hit, looping spawner mines, 4
+ship sprites swapped on health tiers (>=76% / >=51% / >=26% / else), and a
+cover-cropped nebula background. All ship/enemy sprites face up in their
+source files and are rotated every frame so the nose tracks the actual
+heading (`_blit_facing`). Every frame falls back to the plain
+`pygame.draw.*` shape if its PNG is missing - the game never breaks when
+assets are absent.
+
 ### TensorBoard
 ```
 cd part2_arena
