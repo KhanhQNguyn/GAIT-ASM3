@@ -266,13 +266,18 @@ def train(
     return q_table
 
 
-def evaluate_policy(env: GridWorldEnv, q_table: QTable, render: bool = True) -> dict:
+def evaluate_policy(
+    env: GridWorldEnv, q_table: QTable, render: bool = True, seed: int = 1
+) -> dict:
     """Run one greedy (epsilon=0) episode with a trained QTable and return a
     summary dict (steps, total_return, died). Used both for the video demo
     ("learned policy, not random" evidence) and for verifying convergence.
+
+    `seed` makes the watch episode reproducible (monster moves + Q-value
+    tie-breaks); default 1 keeps existing callers unchanged.
     """
-    rng = set_seed(1)  # tie-break seed
-    env._rng.seed(1)  # reproducible monster movement 
+    rng = set_seed(seed)  # greedy tie-breaks
+    env._rng.seed(seed)  # monster movement
     renderer: GridWorldRenderer | None = None
     if render:
         renderer = GridWorldRenderer(grid_size=env.grid_size, caption="Watching learned policy")

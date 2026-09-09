@@ -3,12 +3,14 @@ trains live (with rendering) or loads a saved policy to watch it act --
 satisfying the "visually rendered, interactive, no console display" rule.
 
 Usage:
-    python main.py            # from inside part1_gridworld/
+    python main.py                   # from inside part1_gridworld/
     python part1_gridworld/main.py   # from the repo root
+    python main.py --seed 4          # override the RNG seed for this run
 """
 
 from __future__ import annotations
 
+import argparse
 import pathlib
 import sys
 
@@ -34,17 +36,40 @@ from src.render import GridWorldRenderer, TILE_SIZE_PX  # noqa: E402
 # grid size from the level, which we get after menu selection.
 _DEFAULT_GRID = (10, 10)
 
+# --seed overrides these. Otherwise training uses 0, except level 5 (which
+# converges poorly from seed 0) uses 1; watch-only always uses 1.
+DEFAULT_TRAIN_SEED = 0
+TRAIN_SEED_BY_LEVEL = {5: 1}
+DEFAULT_WATCH_SEED = 1
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=None)
+    return parser.parse_args()
+
+
+def _resolve_seed(cli_seed: int | None, level_id: int, *, watch_only: bool) -> int:
+    """Explicit --seed wins; else the watch-only or per-level training default."""
+    if cli_seed is not None:
+        return cli_seed
+    if watch_only:
+        return DEFAULT_WATCH_SEED
+    return TRAIN_SEED_BY_LEVEL.get(level_id, DEFAULT_TRAIN_SEED)
+
 
 def main() -> None:
     """Full entry point:
-      1. pygame.init(), create a window (pre-menu size, resized after selection).
+      1. Parse --seed, pygame.init(), create a window (resized after selection).
       2. selection = run_menu(screen); exit if None (window closed).
       3. If selection.watch_only: load the saved QTable and call
-         evaluate_policy(env, q_table, render=True).
-         Else: q_table = train(..., render=True), then save the QTable so
-         the policy can be replayed later for the video demo.
+         evaluate_policy(env, q_table, render=True, seed=<resolved>).
+         Else: q_table = train(..., render=True, seed=<resolved>), then save
+         the QTable so the policy can be replayed later for the video demo.
       4. Clean up (renderer.close()) and exit.
     """
+    args = _parse_args()
+
     pygame.init()
 
     # Menu window - fixed size 700x600 gives plenty of room for the picker
@@ -89,15 +114,21 @@ def main() -> None:
 
             q_table = load_qtable(qpath, n_actions=env.action_space_n)
             # evaluate_policy runs greedy rollouts and renders each frame
-            evaluate_policy(env, q_table, render=True)
+            seed = _resolve_seed(args.seed, selection.level_id, watch_only=True)
+            evaluate_policy(env, q_table, render=True, seed=seed)
 
         else:
             # Train from scratch with live rendering
+            seed = _resolve_seed(args.seed, selection.level_id, watch_only=False)
+            print(
+                f"Training level {selection.level_id} "
+                f"({selection.algorithm}) with seed {seed}"
+            )
             q_table = train(
                 level_id=selection.level_id,
                 algorithm=selection.algorithm,
                 render=True,
-                seed=0,
+                seed=seed,
             )
 
             # Save the learned policy so watch-only mode can replay it later
