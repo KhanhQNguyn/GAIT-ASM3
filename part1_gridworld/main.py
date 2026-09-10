@@ -27,10 +27,10 @@ for _p in (str(_HERE), str(_HERE / "src")):
 import pygame  # noqa: E402  (must follow the sys.path shim above)
 
 from src import assets  # noqa: E402
-from src.menu import run_menu  # noqa: E402
-from src.trainer import evaluate_policy, make_env, train  # noqa: E402
 from src.algorithms import load_qtable, qtable_path, save_qtable  # noqa: E402
-from src.render import GridWorldRenderer, TILE_SIZE_PX  # noqa: E402
+from src.menu import run_menu  # noqa: E402
+from src.render import TILE_SIZE_PX, GridWorldRenderer  # noqa: E402
+from src.trainer import evaluate_policy, make_env, train  # noqa: E402
 
 # Window dimensions - the renderer adds a HUD strip on top; we need the base
 # grid size from the level, which we get after menu selection.
@@ -47,6 +47,18 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
+
+
+def _model_path(level_id: int, algorithm: str, use_intrinsic_reward: bool) -> pathlib.Path:
+    """Canonical Q-table path for a run, with the Task-5 "_intrinsic" suffix
+    when the intrinsic-reward variant was selected -- mirrors
+    src/compare_intrinsic_reward.py so Level 6's with- and without-intrinsic
+    models coexist on disk instead of overwriting each other.
+    """
+    base = qtable_path(level_id, algorithm)
+    if not use_intrinsic_reward:
+        return base
+    return base.with_name(base.stem + "_intrinsic" + base.suffix)
 
 
 def _resolve_seed(cli_seed: int | None, level_id: int, *, watch_only: bool) -> int:
@@ -72,8 +84,9 @@ def main() -> None:
 
     pygame.init()
 
-    # Menu window - fixed size 700x600 gives plenty of room for the picker
-    MENU_W, MENU_H = 700, 600
+    # Menu window - fixed size gives plenty of room for the picker (the extra
+    # height over 600 is for the Task-5 intrinsic-reward toggle row).
+    MENU_W, MENU_H = 700, 640
     screen = pygame.display.set_mode((MENU_W, MENU_H))
     pygame.display.set_caption("Gridworld RL - Menu")
 
@@ -102,12 +115,16 @@ def main() -> None:
     try:
         if selection.watch_only:
             # Load saved Q-table and run greedy rollouts
-            qpath = qtable_path(selection.level_id, selection.algorithm)
+            qpath = _model_path(
+                selection.level_id, selection.algorithm, selection.use_intrinsic_reward
+            )
             if not qpath.exists():
+                variant = " (intrinsic)" if selection.use_intrinsic_reward else ""
                 _show_error(
                     screen,
                     f"No saved policy found for level {selection.level_id} / "
-                    f"{selection.algorithm}.\n\nTrain first (uncheck Watch Only).",
+                    f"{selection.algorithm}{variant}.\n\n"
+                    f"Train first (uncheck Watch Only).",
                 )
                 renderer.close()
                 return
@@ -120,19 +137,23 @@ def main() -> None:
         else:
             # Train from scratch with live rendering
             seed = _resolve_seed(args.seed, selection.level_id, watch_only=False)
+            variant = " + intrinsic reward" if selection.use_intrinsic_reward else ""
             print(
                 f"Training level {selection.level_id} "
-                f"({selection.algorithm}) with seed {seed}"
+                f"({selection.algorithm}{variant}) with seed {seed}"
             )
             q_table = train(
                 level_id=selection.level_id,
                 algorithm=selection.algorithm,
                 render=True,
                 seed=seed,
+                use_intrinsic_reward=selection.use_intrinsic_reward,
             )
 
             # Save the learned policy so watch-only mode can replay it later
-            qpath = qtable_path(selection.level_id, selection.algorithm)
+            qpath = _model_path(
+                selection.level_id, selection.algorithm, selection.use_intrinsic_reward
+            )
             save_qtable(q_table, qpath)
             print(f"Policy saved to {qpath}")
 

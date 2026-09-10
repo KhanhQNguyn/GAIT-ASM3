@@ -1,3 +1,5 @@
-level,success_rate,mean_steps,std_steps,key_before_chest_fraction
-2,1.0,40.0,0.0,1.0
-3,1.0,31.0,0.0,1.0
+level,algorithm,success_rate,mean_steps,std_steps,key_before_chest_fraction
+2,q_learning,1.0,40.0,0.0,1.0
+2,sarsa,1.0,40.0,0.0,1.0
+3,q_learning,1.0,31.0,0.0,1.0
+3,sarsa,1.0,52.0,0.0,1.0
