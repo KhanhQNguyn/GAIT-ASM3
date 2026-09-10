@@ -120,8 +120,6 @@ def main() -> None:
             f"final {args.tag} = {values[-1]:.1f}"
         )
 
-    ax.axvline(300_000, color="grey", linestyle=":", linewidth=1)
-    ax.text(300_000, ax.get_ylim()[0], " 300k sweep budget", fontsize=8, color="grey", va="bottom")
     ax.axhline(0, color="black", linewidth=0.6, alpha=0.4)
     ax.set_xlabel("Timesteps")
     ax.set_ylabel("Mean episode reward (rollout/ep_rew_mean)")
