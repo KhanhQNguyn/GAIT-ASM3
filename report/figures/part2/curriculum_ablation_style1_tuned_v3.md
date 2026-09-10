@@ -1,8 +1,8 @@
 # Curriculum ablation -- Style 1 (tuned_v3)
 
-| Run | Final ep_rew_mean | Steps to reach 265.9 |
+| Run | Final ep_rew_mean | Steps to reach 284.6 |
 |---|---|---|
-| curriculum ON  | 332.37 | 741376 |
-| curriculum OFF | -111.27 | not reached |
+| curriculum ON  | 355.70 | 843776 |
+| curriculum OFF | 299.25 | 937984 |
 
-One of the two runs never reached the threshold within its logged timesteps -- see the raw final rewards above instead of a steps-to-threshold claim.
+Curriculum reached the threshold 94208 timesteps sooner than without it.
