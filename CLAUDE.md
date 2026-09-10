@@ -10,21 +10,24 @@ fully implemented** — `part2_arena/` (arena core, training/eval scripts, confi
 scripts) all have real bodies, and `pytest part1_gridworld/tests part2_arena/tests` passes 100%
 with zero skips. Docstrings on already-implemented functions occasionally still say "TODO:
 implement" as a leftover from the original skeleton pass — trust the code and the tests over a
-stale docstring comment when the two disagree. The root `README.md` is similarly stale (still says
-"Skeleton only... Nothing is implemented yet") — trust this file over it.
+stale docstring comment when the two disagree. The root `README.md` was rewritten and is now
+broadly accurate, but it references `docs/PART2_TUNING_GUIDE.md`, which does not exist — the
+tuning notes live in `docs/PLAN_FIX_PART2.md` and the per-team `docs/*.md` logs instead.
 
 Two things worth knowing before extending this further:
 - `part1_gridworld/logs/` (per-run CSV episode logs) and `part1_gridworld/models/` (saved
   Q-tables, JSON) are real generated evidence, not just scaffolding — `trainer.train()` writes to
-  both by default. Re-running `compare_algorithms.run_comparison()` /
-  `compare_q_vs_sarsa.run_comparison()` regenerates the report-figure PNGs in `report/figures/`.
-- Part II's `models/`/`logs/` currently only hold a 3000-timestep PPO smoke run per control style
-  (`--style 1`/`--style 2`, seed 0) — enough to confirm `train.py → models/ → eval_style1.py` /
-  `eval_style2.py` genuinely connects (both eval scripts run and produce sane, non-crashing
-  rollouts; per-term TensorBoard logging under `reward_terms/*` is confirmed populating). The real
-  100k–600k-timestep training runs the report/video need are still outstanding — don't mistake
-  these smoke-test artifacts for finished evidence, and re-run `train.py` at full `--timesteps`
-  before final submission (this will overwrite `models/style{1,2}_ppo_tuned_v1*`).
+  both by default. Re-running `compare_algorithms` / `compare_q_vs_sarsa` /
+  `compare_monster_levels` / `compare_intrinsic_reward` (`part1_gridworld/src/`) regenerates the
+  report-figure PNGs in `report/figures/`.
+- Part II's `models/`/`logs/` hold **real 1M-timestep PPO runs**, not smoke tests. As of the
+  2026-09-08c "glass-cannon fix" (`FIX_PART2.md`) the shipped checkpoints are
+  **`style1_ppo_tuned_v3_curriculum`** and **`style2_ppo_tuned_v3_curriculum`** (`.zip` +
+  `_best/`) — both `--config tuned_v3` (γ 0.995). `tuned_v4` (γ 0.999) is retired: it
+  amplified a "rush to a high phase, then die" policy. Pre-fix checkpoints are frozen under
+  `models/pre_glasscannonfix_2026-09-08c/` (and the earlier `models/pre_aimfix_backup_2026-09-08/`)
+  for the report's before/after; older `tuned_v1`/`tuned_v2`, DQN, and `--death-penalty`
+  ablations also remain in `models/`. Retraining overwrites the same-named file.
 
 `docs/RUBRIC_MAP.md` maps each module/function to the exact rubric row and point value it
 satisfies. Its **"Pre-implementation fixes applied"** section lists spec-fidelity decisions baked
@@ -36,6 +39,13 @@ death (kept in sync across `config/schema.md` and `env.py`), the `QTable`
 `docs/AUDIT_main.md` is a full evidence-based audit of this branch's scaffold against the spec and
 rubric (its "open design decisions" were §5, most now resolved — see below) — still worth reading
 for the reasoning behind decisions baked into the current code.
+
+`docs/RULES.md` is **mandatory pre-flight reading before editing any reward logic, tabular update
+rule, the intrinsic tracker, the observation vector, or any eval/comparison script.** Every rule
+(`R-ALG-*`, `R-REWARD-*`, `R-OBS-*`, `R-EVAL-*`, …) maps to a real correctness bug or a graded
+"weak evidence" criticism from a previous submission of this same assignment. Its §7 is a
+pre-submission grep-based self-audit; cite rule IDs in commit messages when a change complies with
+one.
 
 `GAIT-ASM3/` is an untracked nested clone of this same repo — ignore it; work only in the
 top-level tree.
@@ -88,15 +98,26 @@ Part I (classical RL gridworld):
 cd part1_gridworld && python main.py      # interactive Pygame menu -> train live or watch a saved policy
 ```
 
-Part II (deep RL arena) — run from `part2_arena/`:
+Part II (deep RL arena) — run from `part2_arena/`. `train.py` requires `--style` and `--algo`;
+defaults are `--curriculum on --config tuned_v3 --timesteps 300000 --seed 0`:
 ```
-python scripts/train.py --style 1 --algo ppo --timesteps 300000 [--curriculum on] [--config tuned_v1]
-python scripts/eval_style1.py [--algo ppo] [--episodes 5]
+python scripts/train.py --style 1 --algo ppo --config tuned_v3 --curriculum on --timesteps 1000000   # shipped style-1 run
+python scripts/train.py --style 2 --algo ppo --config tuned_v3 --curriculum on --timesteps 1000000   # shipped style-2 run
+python scripts/train.py --style 1 --algo ppo --death-penalty -30 [--wall-penalty 0]  # ablation overrides
+python scripts/eval_style1.py [--algo ppo] [--episodes 5] [--sampling stochastic] [--checkpoint best]
 python scripts/eval_style2.py
+python scripts/eval_aim_stats.py --style 2 --config tuned_v3 --curriculum on   # headless aim/wall-hug metrics
+python scripts/compare_styles.py               # REQUIRED rubric item: two-control-scheme comparison
 python scripts/compare_ppo_dqn.py              # creativity hook (a)
 python scripts/plot_reward_decomposition.py    # creativity hook (b), reads per-term TensorBoard scalars
+python scripts/quantify_curriculum.py          # creativity hook (c) — curriculum on vs off, a real number
+python scripts/plot_death_penalty_ablation.py  # R_DEATH magnitude ablation for the report
+python scripts/print_env_io_example.py         # literal reset()/step() I/O dump for the report (rubric II-H)
 tensorboard --logdir logs
 ```
+`--death-penalty` runs are written with an `ablation_` prefix; `--wall-penalty` runs get a
+`_wall<N>` suffix and are treated as main runs. Ablation flags override the corresponding
+`rewards_config.py` constant for that run only.
 
 Keep the report's reward tables in sync after changing any reward constant:
 ```
@@ -218,11 +239,22 @@ design — **do not merge these**:
   `scripts/callbacks.py::RewardTermLoggingCallback` (an SB3 `BaseCallback` wired into
   `train.py`) logs each to TensorBoard as `reward_terms/<name>` for
   `scripts/plot_reward_decomposition.py` (creativity hook b) to read back via `tbparse`.
-  `rewards_config.py` holds all constants (5 spec-required + 2 justified shaping terms, each with
-  a one-line justification docstring): `R_APPROACH_NEAREST_ENEMY` (kept, per-episode capped at
-  `R_KILL_ENEMY`, gated to outside engage range) and `R_SHOOT_WHILE_NO_TARGET` (kept disabled at
-  `0.0` — revisit only if training runs show shot-spam hurting performance). `SHOT_NO_TARGET_RADIUS
-  = 350.0` defines "shot fired with no target" for that term.
+  `rewards_config.py` holds all constants and **is the source of truth** — 5 spec-required +
+  **4 ACTIVE** shaping terms (`R_DAMAGE_DEALT_PER_HP`, `R_TIME_STEP_PENALTY`,
+  `R_WALL_PROXIMITY_PER_STEP`, `R_AIMED_HIT_BONUS = 3.0`), plus `R_SHOOT_TOWARD_ENEMY`
+  (retired to `0.0` on 2026-09-08d — paid for facing, not hitting → spray incentive),
+  `R_APPROACH_NEAREST_ENEMY` / `R_SHOOT_WHILE_NO_TARGET` inert at `0.0`. Each active term
+  carries a one-line justification + anti-farming note (`docs/RULES.md` R-REWARD-3; still a
+  Part II-J point — see the module docstring). **All three spec-required positive terms
+  (`R_KILL_ENEMY` / `R_KILL_SPAWNER` / `R_PHASE_PROGRESS`) are uncapped** — the intended
+  policy is "destroy spawners → progress phases → survive", not farm-enemies or flee.
+  `rewards.py` also holds `APPROACH_REWARD_EPISODE_CAP` (live but inert, term is 0.0) and
+  **`PROGRESS_REWARD_EPISODE_CAP` (disabled, `+inf`)** — the latter clamped `kill_spawner +
+  phase_progress` (2026-09-08c) but was removed 2026-09-08e because those are spec-required
+  §5 terms; its clamp code + `core_env._cumulative_progress_reward` plumbing are retained,
+  monkeypatch-tested, for a one-line re-enable (`FIX_PART2.md` §3.3). `core_env` also
+  exposes `_shots_fired` (real per-episode shot counter for `eval_aim_stats.py`, which
+  otherwise under-counts spray shots).
 - **`arena/phases.py`** — `PhaseManager`: advances the difficulty phase when all active spawners
   are destroyed (awarding `R_PHASE_PROGRESS`). `curriculum_enabled` (creativity hook c) makes
   early phases easier, ramping to the normal curve over `curriculum.enabled_ramp_phases`; toggled
@@ -232,16 +264,22 @@ design — **do not merge these**:
   curriculum/observation-normalization constants (mirrors Part I's `training_config.json`
   pattern). `max_steps` is `1200` here (reduced from the `3000` module fallback specifically so a
   ~300k-timestep run sees enough full episodes to learn — see `docs/AUDIT_main.md` 5.4).
-- **`config/hyperparams.json`** — named PPO/DQN presets (`baseline`, `tuned_v1`, ...) that
-  `scripts/train.py --config <name>` loads via `build_model()`; add new presets rather than
-  editing existing ones so past runs stay reproducible.
+- **`config/hyperparams.json`** — named PPO presets (`baseline`, `tuned_v1`..`tuned_v4`) and DQN
+  presets (`baseline`, `tuned_v1`) that `scripts/train.py --config <name>` loads via
+  `build_model()`. **Both control styles ship on `tuned_v3` (γ 0.995)**; `tuned_v4` (= `tuned_v3`
+  with γ 0.999) is retired but kept for reproducing the pre-2026-09-08c style-2 model. Add new
+  presets rather than editing existing ones so past runs stay reproducible.
 - **`scripts/train.py`** — one model per `--style`; `--algo {ppo,dqn}` (hook a),
-  `--curriculum {on,off}` (hook c), `--config` (hyperparameter preset, hook toward meaningfully
-  tuned hyperparameters). Seeds via SB3's `set_random_seed(args.seed)` directly (Part II has no
-  dedicated seed-utils module, unlike Part I). Models → `models/`, TensorBoard logs → `logs/`.
+  `--curriculum {on,off}` (hook c, **defaults `on`**), `--config` (hyperparameter preset,
+  **defaults `tuned_v3`**), plus `--death-penalty` / `--wall-penalty` ablation overrides. Seeds
+  via SB3's `set_random_seed(args.seed)` directly (Part II has no dedicated seed-utils module,
+  unlike Part I). Models → `models/`, TensorBoard logs → `logs/`.
 - **`scripts/eval_style1.py` / `eval_style2.py`** — deliberately standalone (no shared
   `--style` flag) because the rubric asks for a separate eval script per control style. Load the
-  saved model, play live with `render_mode="human"`, `deterministic=True`. Their render loop
+  saved model, play live with `render_mode="human"`. `--sampling` **defaults to `stochastic`**
+  (shows the full learned behaviour incl. phase progression); `deterministic` argmax can collapse
+  to a degenerate wall/spray mode, so use stochastic for the demo video. `--checkpoint best` uses
+  the EvalCallback's best-by-reward save. Their render loop
   checks `env.render()`'s returned bool (window-closed signal), respects `env.is_paused`
   (Space), reads `env.speed_multiplier` (`[`/`]`) for `clock.tick(fps * mult)`, and honors
   `env.consume_restart_request()`/`consume_skip_request()` (R/N) — all plumbed through

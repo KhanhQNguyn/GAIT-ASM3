@@ -114,6 +114,93 @@ Two decisions to state and justify here:
     must dominate a whole episode's positive reward (with an example
     calculation or a short ablation) or reduce it.
 
+### 3.1 Part II reward — final structure
+
+The five spec-required terms (`assessment_requirements_summary.md` §5), with the
+magnitudes actually shipped (full table: `report/figures/reward_tables.md`):
+
+| term | value | note |
+|---|---|---|
+| `R_KILL_ENEMY` | +5 | positive reward for destroying an enemy |
+| `R_KILL_SPAWNER` | +20 | *larger* than an enemy kill — spawners gate phase progression |
+| `R_PHASE_PROGRESS` | +30 | reaching a new phase (all active spawners destroyed); a top-tier event reward alongside `R_KILL_SPAWNER` |
+| `R_DAMAGE_TAKEN_PER_HP` | −0.7 | per HP of contact damage |
+| `R_DEATH` | −150 | one-off, on death — the "strong" §5 term (30× an enemy kill; R-REWARD-4 justified by the measured death-rate response, §3.2) |
+
+**All three positive/progression terms are uncapped** — the agent is rewarded for
+*every* enemy kill, *every* spawner kill and *every* phase advance, for the whole
+episode. The intended learned behaviour is therefore: **seek and destroy spawners
+to progress phases, killing or dodging enemies as needed, surviving as long as
+possible against the escalating difficulty curve.** "Camp and farm enemies" is
+suppressed by `R_KILL_SPAWNER` > `R_KILL_ENEMY` + `R_PHASE_PROGRESS`; "flee only"
+earns nothing and never progresses a phase.
+
+Four justified shaping terms (each targets a measured failure of an earlier
+training iteration; §3.2): `R_DAMAGE_DEALT_PER_HP` +0.05/HP (dense combat
+gradient), `R_TIME_STEP_PENALTY` −0.01/step (passivity has a cost),
+`R_WALL_PROXIMITY_PER_STEP` −0.05/step ramped (anti wall-camp),
+`R_AIMED_HIT_BONUS` +3.0 × fire-time alignment on a hit (rewards *aimed* fire, not
+spray). Two further terms — `R_APPROACH_NEAREST_ENEMY`, `R_SHOOT_WHILE_NO_TARGET` —
+and one structural mechanism — `PROGRESS_REWARD_EPISODE_CAP` — are retained
+**inert** as documented considered-and-rejected designs (§3.3).
+
+### 3.2 How the shaping terms were arrived at (iteration log — condense for the report)
+
+- **2026-08-28:** `tuned_v1/v2` collapsed to corner-camping (0 kills). Added
+  non-kamikaze enemies + `R_TIME_STEP_PENALTY` + `R_DAMAGE_DEALT_PER_HP`.
+- **2026-09-08:** added `R_AIMED_HIT_BONUS` / `R_SHOOT_TOWARD_ENEMY` for aim;
+  raised `enemy.contact_damage` to 25.
+- **2026-09-08c "glass-cannon fix":** 1M `tuned_v3/v4` models learned "rush to a
+  high phase, bank the reward, die ~step 700" (73 % / 47 % death). Damage cost
+  raised (`R_DAMAGE_TAKEN_PER_HP` −0.5→−0.7, `contact_damage` 25→20), world kept
+  hostile (`enemy_speed_gain_per_phase` 0.55→0.5, `max_concurrent` 18,
+  `num_active_enemies_max` 12→18), `rotate_speed_rad` 0.14→0.2 (style-1 wall
+  stall). Also added a per-episode cap on progression reward — **later reverted,
+  see §3.3.**
+- **2026-09-08d "less-attack fix":** the capped models dodged and sprayed instead
+  of fighting; exact per-shot instrumentation (§3.4) showed real aim alignment
+  ~0.3 / hit-rate ~0.1 and kills → 0 once the cap bound. `R_SHOOT_TOWARD_ENEMY`
+  0.12→**0.0** (it paid per shot for *facing* the objective, hit or miss — the
+  spray incentive; active shaping 5→4); `R_AIMED_HIT_BONUS` 1.0→**3.0** (an aimed
+  hit now clearly out-earns a spray hit).
+- **2026-09-08e "spec-alignment":** `PROGRESS_REWARD_EPISODE_CAP` disabled
+  entirely — see §3.3. The cap-free 1M models cleared ~4 phases/episode (the
+  spec-optimal spawner-focus, 5–9 spawner kills/ep, aim 0.73–0.90) but died
+  ~50–90 % of the time — uncapped `R_PHASE_PROGRESS` = +50/phase made 4 phases
+  (+200) worth 2× `R_DEATH`, so dying at phase 4 was reward-optimal.
+- **2026-09-08f "magnitude tune":** `R_PHASE_PROGRESS` 50→**30** and `R_DEATH`
+  −100→**−150** — both still §5-legal (a positive phase reward; a "strong"
+  negative death reward), *not* a cap: every phase still pays in full. 4 phases
+  = +120 < |`R_DEATH`|, so "survive and keep clearing" beats "rush to phase 4
+  and die". R-REWARD-4 (30× `R_KILL_ENEMY`) is justified by the measured
+  death-rate response, with `plot_death_penalty_ablation.py` available if a
+  −100 vs −150 plot is wanted.
+
+### 3.3 The progression cap — considered and rejected (§5 fidelity)
+
+The 2026-09-08c cap clamped cumulative `phase_progress + kill_spawner` per episode.
+Measured on the capped models the agent was destroying ~4 spawners per episode but
+being *paid* for ~1.4, and phase advances past ~phase 2 paid nothing. `phase_progress`
+and `kill_spawner` are **two of the five reward terms §5 requires** ("positive
+reward for progressing to the next phase", "larger positive reward for destroying
+spawners"); clamping a required term for most of the episode is a larger deviation
+from §5 than any optional shaping and a Part II-J ("reward structure") risk. It was
+removed (`PROGRESS_REWARD_EPISODE_CAP = +inf`; the clamp code and `core_env`
+running-total plumbing are retained, monkeypatch-tested, for a one-line re-enable).
+The glass-cannon is instead shaped only through §5's own negative terms (`R_DEATH`,
+`R_DAMAGE_TAKEN_PER_HP`) plus the hostile world; an agent that aggressively clears
+phases and eventually dies to the difficulty ramp is the spec-intended arcade
+behaviour and a stronger phase-system demo than one camping a low phase.
+
+### 3.4 `eval_aim_stats.py` metric bug (fixed, no retrain)
+
+`eval_aim_stats.py` counted a shot only when `len(state.projectiles)` grew between
+steps, which drops shots that collide the same step they fire — disproportionately
+spray shots — so `mean_align` / `frac30` / hit-rate read ~3× too optimistic (0.87
+vs the true ~0.3 for style 1). `ArenaCoreEnv` now exposes a real `_shots_fired`
+counter (incremented in `_try_shoot`) and the script diffs that. Any aim number in
+the report must come from the fixed script.
+
 ## 4. Hyperparameter Exploration (~1-1.5 pages)
 
 TODO: what was tuned (learning rate, gamma, epsilon schedule, PPO/DQN
