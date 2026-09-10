@@ -3,15 +3,15 @@ OBS_DIM = 15, OBSERVATION_SPEC has 15 entries
 
 === ArenaCoreEnv (literal spec API) ===
 reset() -> type=ndarray shape=(15,) dtype=float32
-reset() -> array([ 0.   ,  0.   ,  0.   ,  0.   , -1.   ,  0.   ,  1.   ,  1.   ,  0.   ,  1.   , -0.575,
-       -1.   ,  0.   , -1.   , -1.   ], dtype=float32)
+reset() -> array([ 0.    ,  0.    ,  0.    ,  0.    , -1.    ,  0.    ,  1.    ,  1.    ,  0.    ,  1.    ,
+       -0.363 , -0.571 , -0.8209, -1.    , -1.    ], dtype=float32)
 
 step(1) returned a 4-tuple: (obs, reward, done, info)
   obs    = array([ 0.    , -0.0014,  0.    , -0.0808, -1.    ,  0.    ,  1.    ,  1.    ,  0.    ,  1.    ,
-       -0.5758, -1.    ,  0.    , -1.    , -1.    ], dtype=float32)
-  reward = 0.0
+       -0.3634, -0.5702, -0.8215, -1.    , -1.    ], dtype=float32)
+  reward = -0.01
   done   = False
-  info   = {'reward_breakdown': RewardBreakdown(kill_enemy=0.0, kill_spawner=0.0, phase_progress=0.0, damage_taken=-0.0, death=-0.0, approach_nearest_enemy=0.0, shoot_while_no_target=0.0),
+  info   = {'reward_breakdown': RewardBreakdown(kill_enemy=0.0, kill_spawner=0.0, phase_progress=0.0, damage_taken=-0.0, damage_dealt=0.0, death=-0.0, approach_nearest_enemy=0.0, shoot_while_no_target=0.0, shoot_toward_enemy=0.0, aimed_hit=0.0, wall_proximity=-0.0, time_penalty=-0.01),
              'died': False, 'truncated': False}
 
 === ArenaGymEnv (Gymnasium 5-tuple, what SB3 trains against) ===
@@ -30,9 +30,9 @@ step(1) returned a 5-tuple:
   [ 7] nearest_enemy_distance                       =  1.0000
   [ 8] nearest_enemy_direction_sin                  =  0.0000
   [ 9] nearest_enemy_direction_cos                  =  1.0000
-  [10] nearest_spawner_distance                     = -0.5758
-  [11] nearest_spawner_direction_sin                = -1.0000
-  [12] nearest_spawner_direction_cos                =  0.0000
+  [10] nearest_spawner_distance                     = -0.3634
+  [11] nearest_spawner_direction_sin                = -0.5702
+  [12] nearest_spawner_direction_cos                = -0.8215
   [13] current_phase_frac                           = -1.0000
   [14] num_active_enemies_frac                      = -1.0000
 

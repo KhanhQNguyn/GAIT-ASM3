@@ -1,8 +1,8 @@
 """Creativity/Task 5 evidence: train level 6 with intrinsic reward ON vs OFF
 (identical seed), plot both curves together, and persist both Q-tables.
 
-Regenerates report/figures/task5_intrinsic_comparison_level6.png reproducibly
-(that figure previously existed with no producing script).
+Regenerates report/figures/part1/task5_intrinsic_comparison_level6.png
+reproducibly (that figure previously existed with no producing script).
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def run_comparison(seed: int = 0) -> dict[str, pathlib.Path]:
     figure_path = plot_training_curve(
         {label: str(path) for label, path in csv_paths.items()},
         title=f"Task 5: Intrinsic reward on vs off (level {COMPARISON_LEVEL_ID})",
-        output_name=f"task5_intrinsic_comparison_level{COMPARISON_LEVEL_ID}.png",
+        output_name=f"part1/task5_intrinsic_comparison_level{COMPARISON_LEVEL_ID}.png",
     )
     return {**csv_paths, "figure": figure_path}
 

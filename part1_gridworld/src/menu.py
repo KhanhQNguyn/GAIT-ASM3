@@ -15,6 +15,12 @@ from src import assets
 LEVEL_IDS = [0, 1, 2, 3, 4, 5, 6]
 ALGORITHMS = ["q_learning", "sarsa", "expected_sarsa"]
 
+# Task 5: the count-based intrinsic reward is only defined for Level 6 (its
+# layout deliberately mirrors Level 4 so the intrinsic reward is the sole
+# variable -- see config/level6.json's _design_note). The menu's intrinsic
+# toggle is inert on every other level.
+INTRINSIC_LEVEL_ID = 6
+
 # Colour palette
 _BG = (15, 15, 28)
 _PANEL = (28, 28, 48)
@@ -35,7 +41,13 @@ def _lighten(color: tuple, amt: int = 20) -> tuple:
 class MenuSelection:
     """Plain result object returned by run_menu()."""
 
-    def __init__(self, level_id: int, algorithm: str, watch_only: bool):
+    def __init__(
+        self,
+        level_id: int,
+        algorithm: str,
+        watch_only: bool,
+        use_intrinsic_reward: bool = False,
+    ):
         self.level_id = level_id
         self.algorithm = algorithm
         # watch_only=True -> main.py loads the saved Q-table at
@@ -43,11 +55,18 @@ class MenuSelection:
         # greedy policy (the video demo's "learned policy, not random"
         # evidence). watch_only=False -> train fresh, then save to that path.
         self.watch_only = watch_only
+        # Task 5 / Level 6 only: when True, main.py trains (or, in watch-only
+        # mode, loads) the count-based intrinsic-reward variant, using the
+        # "_intrinsic"-suffixed qtable_path so it never overwrites the plain
+        # Level 6 model. run_menu() forces this False for every level except
+        # INTRINSIC_LEVEL_ID, so callers never have to re-check the level.
+        self.use_intrinsic_reward = use_intrinsic_reward
 
     def __repr__(self) -> str:
         return (
             f"MenuSelection(level_id={self.level_id}, "
-            f"algorithm={self.algorithm!r}, watch_only={self.watch_only})"
+            f"algorithm={self.algorithm!r}, watch_only={self.watch_only}, "
+            f"use_intrinsic_reward={self.use_intrinsic_reward})"
         )
 
 
@@ -59,6 +78,7 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
       - LEFT / RIGHT arrows: change selected level
       - UP / DOWN arrows:    change selected algorithm
       - W:                   toggle watch-only mode
+      - I:                   toggle intrinsic reward (Level 6 only)
       - ENTER / SPACE:       confirm and start
       - ESC / window close:  exit (returns None)
 
@@ -66,6 +86,7 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
       - Click on a level button to select it
       - Click on an algorithm button to select it
       - Click the Watch / Train toggle button
+      - Click the Intrinsic Reward toggle (Level 6 only)
       - Click Start button to confirm
 
     Returns:
@@ -84,6 +105,7 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
     sel_level = 0       # index into LEVEL_IDS
     sel_algo = 0        # index into ALGORITHMS
     watch_only = False
+    intrinsic_on = False  # Task 5 toggle; only meaningful on INTRINSIC_LEVEL_ID
 
     def _draw_button(
         surf: pygame.Surface,
@@ -108,7 +130,6 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
 
     def _layout() -> dict:
         """Compute all button rects based on current screen size."""
-        margin = 28
         top = 80  # below title
 
         # Level row
@@ -135,10 +156,16 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
             x = algo_start_x + i * (algo_btn_w + algo_spacing)
             algo_rects.append(pygame.Rect(x, algo_row_y, algo_btn_w, algo_btn_h))
 
+        # Intrinsic-reward toggle (Task 5 / Level 6)
+        intr_w, intr_h = 320, 44
+        intr_x = (screen_w - intr_w) // 2
+        intr_y = algo_row_y + algo_btn_h + 50
+        intr_rect = pygame.Rect(intr_x, intr_y, intr_w, intr_h)
+
         # Watch toggle button
         toggle_w, toggle_h = 200, 44
         toggle_x = (screen_w - toggle_w) // 2
-        toggle_y = algo_row_y + algo_btn_h + 50
+        toggle_y = intr_y + intr_h + 46
         toggle_rect = pygame.Rect(toggle_x, toggle_y, toggle_w, toggle_h)
 
         # Start button
@@ -150,6 +177,7 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
         return {
             "lev_rects": lev_rects,
             "algo_rects": algo_rects,
+            "intr_rect": intr_rect,
             "toggle_rect": toggle_rect,
             "start_rect": start_rect,
         }
@@ -188,6 +216,25 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
             _draw_button(screen, rect, algo_display.get(algo, algo), i == sel_algo, font_btn,
                          hovered=rect.collidepoint(mouse_pos))
 
+        # Intrinsic-reward toggle (Task 5) -- interactive only on Level 6, drawn
+        # dimmed and click-through on every other level.
+        intr_rect = layout["intr_rect"]
+        intr_available = LEVEL_IDS[sel_level] == INTRINSIC_LEVEL_ID
+        if not intr_available:
+            _draw_button(screen, intr_rect, "Intrinsic Reward (Level 6)", False,
+                         font_body, bg_norm=_PANEL, text_col=_MUTED)
+        else:
+            intr_hovered = intr_rect.collidepoint(mouse_pos)
+            intr_label = f"Intrinsic Reward: {'ON' if intrinsic_on else 'OFF'}"
+            intr_bg = _WATCH_ON if intrinsic_on else _WATCH_OFF
+            _draw_button(screen, intr_rect, intr_label, False, font_body,
+                         bg_norm=intr_bg, text_col=(240, 240, 240),
+                         hovered=intr_hovered)
+            outline = (255, 255, 255) if intr_hovered else (
+                _ACCENT if intrinsic_on else _ACCENT2)
+            pygame.draw.rect(screen, outline, intr_rect,
+                             width=3 if intr_hovered else 2, border_radius=8)
+
         # Watch toggle
         toggle_rect = layout["toggle_rect"]
         toggle_hovered = toggle_rect.collidepoint(mouse_pos)
@@ -224,7 +271,8 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
 
         # Keyboard hint
         hint = font_body.render(
-            "Arrow keys: navigate  |  W: toggle Watch  |  Enter: start  |  Esc: quit",
+            "Arrows: navigate  |  W: Watch  |  I: Intrinsic (L6)  |  "
+            "Enter: start  |  Esc: quit",
             True, _MUTED,
         )
         screen.blit(hint, (screen_w // 2 - hint.get_width() // 2, screen_h - 32))
@@ -250,11 +298,18 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
                     sel_algo = (sel_algo + 1) % len(ALGORITHMS)
                 elif event.key == pygame.K_w:
                     watch_only = not watch_only
+                elif event.key == pygame.K_i:
+                    if LEVEL_IDS[sel_level] == INTRINSIC_LEVEL_ID:
+                        intrinsic_on = not intrinsic_on
                 elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                     return MenuSelection(
                         level_id=LEVEL_IDS[sel_level],
                         algorithm=ALGORITHMS[sel_algo],
                         watch_only=watch_only,
+                        use_intrinsic_reward=(
+                            intrinsic_on
+                            and LEVEL_IDS[sel_level] == INTRINSIC_LEVEL_ID
+                        ),
                     )
 
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -270,6 +325,11 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
                     if rect.collidepoint(mx, my):
                         sel_algo = i
 
+                # Intrinsic-reward toggle (Level 6 only)
+                if (layout["intr_rect"].collidepoint(mx, my)
+                        and LEVEL_IDS[sel_level] == INTRINSIC_LEVEL_ID):
+                    intrinsic_on = not intrinsic_on
+
                 # Watch toggle
                 if layout["toggle_rect"].collidepoint(mx, my):
                     watch_only = not watch_only
@@ -280,6 +340,10 @@ def run_menu(screen: "pygame.Surface") -> MenuSelection | None:
                         level_id=LEVEL_IDS[sel_level],
                         algorithm=ALGORITHMS[sel_algo],
                         watch_only=watch_only,
+                        use_intrinsic_reward=(
+                            intrinsic_on
+                            and LEVEL_IDS[sel_level] == INTRINSIC_LEVEL_ID
+                        ),
                     )
 
     return None
