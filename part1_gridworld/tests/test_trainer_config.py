@@ -1,6 +1,7 @@
 """Tests for trainer.load_training_config and its validation."""
 
 import pytest
+
 from src.trainer import _validate_config, load_training_config
 
 

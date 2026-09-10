@@ -13,8 +13,6 @@ def test_tied_best_actions_each_selected_with_nonzero_frequency():
     epsilon=0, run epsilon_greedy many times with different RNG states and
     assert BOTH tied actions appear in the results (not just one of them
     every time), and that the non-tied actions never appear.
-
-    TODO: implement once algorithms.epsilon_greedy is implemented.
     """
     rng = random.Random(7)
     q_values = [3.0, 3.0, 0.0, 0.0]

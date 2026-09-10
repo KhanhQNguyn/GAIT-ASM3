@@ -8,10 +8,7 @@ from __future__ import annotations
 import json
 import random
 
-import pytest
-
 from src.env import Action, GridWorldEnv
-
 
 # ---------------------------------------------------------------------------
 # Helpers

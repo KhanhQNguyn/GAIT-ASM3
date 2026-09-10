@@ -456,7 +456,8 @@ class GridWorldEnv:
                 break
 
         # Key pickup (key tile is consumed once picked up)
-        if self._key_pos is not None and (ax, ay) == self._key_pos and not self._has_key and not self._chest_open:
+        on_key_tile = self._key_pos is not None and (ax, ay) == self._key_pos
+        if on_key_tile and not self._has_key and not self._chest_open:
             reward += REWARD_KEY  # 0.0 per spec — imported, not hardcoded
             self._has_key = True
 
@@ -560,9 +561,11 @@ class GridWorldEnv:
             if (self._apples_bitmask >> i) & 1
         ]
         # Key is visible on map only if it hasn't been picked up yet
-        key_on_map = self._key_pos if (self._key_pos is not None and not self._has_key and not self._chest_open) else None
+        key_visible = self._key_pos is not None and not self._has_key and not self._chest_open
+        key_on_map = self._key_pos if key_visible else None
         # Chest is visible only if not opened yet
-        chest_on_map = self._chest_pos if (self._chest_pos is not None and not self._chest_open) else None
+        chest_visible = self._chest_pos is not None and not self._chest_open
+        chest_on_map = self._chest_pos if chest_visible else None
 
         return {
             "grid_w": self._grid_w,

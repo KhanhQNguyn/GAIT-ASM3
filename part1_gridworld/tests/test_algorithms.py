@@ -26,8 +26,6 @@ def test_q_learning_update_uses_max_over_next_actions():
     greedy next action differs from an arbitrarily chosen 'actual' next
     action, run q_learning_update, and assert the update used the MAX
     value, not the arbitrary one.
-
-    TODO: implement once algorithms.q_learning_update exists.
     """
     q = QTable(n_actions=2)
     q["s'"][0] = 10.0
@@ -45,8 +43,6 @@ def test_sarsa_update_uses_actual_next_action_not_max():
     passed in, even when a different action has a higher Q-value at s'.
     Construct a case where next_action is deliberately NOT the argmax and
     assert the update reflects next_action's value, not the max.
-
-    TODO: implement once algorithms.sarsa_update exists.
     """
     q = QTable(n_actions=2)
     q["s'"][0] = 10.0  # the max, but NOT the action actually taken next
@@ -62,8 +58,6 @@ def test_expected_sarsa_update_uses_policy_expectation():
     """Expected SARSA's target must equal the epsilon-greedy expectation
     over ALL next-state actions, not a sampled action and not a bare max.
     Verify against a hand-computed expectation for a small fixed Q(s', *).
-
-    TODO: implement once algorithms.expected_sarsa_update exists.
     """
     q = QTable(n_actions=2)
     q["s'"][0] = 4.0
@@ -80,8 +74,6 @@ def test_linear_epsilon_decay_endpoints_and_linearity():
     """epsilon at episode 0 == epsilon_start, epsilon at the final episode
     == epsilon_end, and the decay is linear (constant step size) in
     between -- not exponential.
-
-    TODO: implement once algorithms.linear_epsilon_decay is implemented.
     """
     start, end, total = 1.0, 0.05, 1000
     assert linear_epsilon_decay(0, total, start, end) == pytest.approx(start)
@@ -96,9 +88,8 @@ def test_epsilon_greedy_random_tie_breaking_distribution():
     epsilon=0, to isolate the tie-break path) must select among them
     roughly uniformly over many trials, not always the lowest index.
 
-    TODO: implement once algorithms.epsilon_greedy is implemented -- run
-    many trials with a seeded RNG and a chi-square-style sanity check on
-    the distribution of selected tied actions.
+    Runs many trials with a seeded RNG and a chi-square-style sanity check
+    on the distribution of selected tied actions.
     """
     rng = random.Random(42)
     q_values = [5.0, 5.0, 1.0, 0.0]  # actions 0 and 1 tied for max

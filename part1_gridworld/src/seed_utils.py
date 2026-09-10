@@ -17,8 +17,6 @@ def set_seed(seed: int) -> random.Random:
     env._resolve_monster_moves) that prefer an explicit RNG object over the
     global one -- makes it easy to run multiple independent seeded trials
     side by side without them interfering.
-
-    TODO: implement.
     """
     random.seed(seed)
     np.random.seed(seed)

@@ -21,10 +21,6 @@ def test_level_loads_and_validates(level_id):
     """GridWorldEnv._load_level(config/level{level_id}.json) returns without
     raising -- i.e. required keys present, all coordinates in bounds, no
     unintended tile overlaps.
-
-    TODO: implement once GridWorldEnv._load_level performs its documented
-    validation (currently it only json.loads). Construct the path from
-    env.CONFIG_DIR and assert no ValueError.
     """
     path = CONFIG_DIR / f"level{level_id}.json"
     GridWorldEnv._load_level(path)  # raises ValueError on any schema violation
@@ -38,10 +34,10 @@ def test_level_is_solvable(level_id):
     this check -- they are lethal, not blocking). A level failing this is a
     config bug, not an RL problem.
 
-    TODO: implement as a plain BFS over the grid from agent_start, treating
-    rocks and out-of-bounds as walls; assert the reachable set contains
-    every apple coord, the key coord, and the chest coord. Does not need
-    GridWorldEnv -- read the JSON directly.
+    Implemented as a plain BFS over the grid from agent_start, treating
+    rocks and out-of-bounds as walls, asserting the reachable set contains
+    every apple coord, the key coord, and the chest coord. Reads the JSON
+    directly (no GridWorldEnv).
     """
     import json
 

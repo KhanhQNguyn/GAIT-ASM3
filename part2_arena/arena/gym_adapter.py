@@ -6,12 +6,11 @@ instead of a single done flag), which is a training-library requirement,
 not part of the assignment's own API wording.
 
 Do not put any game logic here -- this file's only job is protocol
-translation. Example (illustrative, not executable):
-    core_env_step_returns_obs_reward_done_info
-    gym_adapter_step_returns_obs_reward_terminated_truncated_info
-with terminated = the player died, and truncated = the step/time limit was
-hit, derived from info["died"] / info["truncated"] that core_env.step()
-already provides (see core_env.py's step() docstring).
+translation: core_env.step() returns (obs, reward, done, info); this
+adapter's step() returns (obs, reward, terminated, truncated, info), with
+terminated = the player died and truncated = the step/time limit was hit,
+derived from info["died"] / info["truncated"] that core_env.step() already
+provides (see core_env.py's step() docstring).
 """
 
 from __future__ import annotations

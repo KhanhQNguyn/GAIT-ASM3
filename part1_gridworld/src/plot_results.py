@@ -77,8 +77,8 @@ def plot_death_rate(csv_paths: dict[str, str], title: str, output_name: str) -> 
     single piece of "the agent learned to avoid monsters" evidence for the
     report (see docs/AUDIT_main.md 6.8).
 
-    TODO: implement with matplotlib (mirror plot_training_curve's structure;
-    y-axis 0..1, rolling window e.g. 50 episodes).
+    Mirrors plot_training_curve's structure; y-axis 0..1, rolling window of
+    50 episodes.
     """
     import numpy as np
 

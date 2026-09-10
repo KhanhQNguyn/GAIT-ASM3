@@ -293,6 +293,6 @@ since that term is now disabled (see its decision above), this constant's
 only remaining role is the (itself disabled) shot-penalty term, so it is
 currently inert end to end. RETAINED because both consumers are one-line
 re-enables away from needing it, and tests still exercise the machinery.
-TODO: tune against the real weapon/projectile range in config/arena.json
-if either consumer term is ever re-enabled, and record the final value in
+If either consumer term is ever re-enabled, tune this against the real
+weapon/projectile range in config/arena.json and record the final value in
 report section 3/4."""

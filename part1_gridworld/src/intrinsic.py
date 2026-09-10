@@ -68,8 +68,6 @@ class IntrinsicRewardTracker:
         numeric result; choose whichever form is easier to read when
         implementing, as long as both are consistent with the instruction
         above.
-
-        TODO: implement.
         """
         n = self._visit_counts[state]  # pre-visit count (0 on first visit)
         bonus = self.strength / math.sqrt(n + 1)

@@ -19,14 +19,11 @@ MODELS_DIR = pathlib.Path(__file__).resolve().parent.parent / "models"
 class QTable:
     """Maps (state, action) -> float, defaulting unseen entries to 0.0.
 
-    Access pattern (illustrative, not executable):
-    The Q-table should be accessed by first retrieving the state, and then
-    the action -- i.e. `q_table[state][action]`. Accessing `q_table[state]`
-    yields a list of Q-values for all actions, which is then indexed by the
-    action integer. `q_table[state][action]` is the ONLY supported access
-    pattern. The formerly present .values(state) method has been removed --
-    all callers in trainer.py, compare_algorithms.py, and tests must use
-    this state-then-action access pattern instead.
+    Access pattern: state first, then action -- `q_table[state]` yields the
+    list of Q-values for all actions, which is then indexed by the action
+    integer. `q_table[state][action]` is the ONLY supported access pattern
+    (the former .values(state) method was removed); trainer.py,
+    compare_algorithms.py, and the tests all rely on it.
     """
 
     def __init__(self, n_actions: int):
@@ -130,8 +127,6 @@ def linear_epsilon_decay(
     epsilon_end (episode total_episodes - 1), per config-driven
     epsilonStart/epsilonEnd. Must be linear, not exponential -- the spec is
     explicit about this.
-
-    TODO: implement the linear interpolation.
     """
     if total_episodes <= 1:
         return epsilon_start
@@ -144,10 +139,9 @@ def epsilon_greedy(q_values: list[float], epsilon: float, rng: random.Random) ->
     actions sharing the best Q-value (a plain argmax silently always picks
     the first-index tie, which the spec explicitly disallows).
 
-    TODO:
-      - with probability epsilon, return a uniformly random action index.
-      - otherwise, find all indices tied for max(q_values) and pick one of
-            them uniformly at random via `rng`.
+    With probability epsilon, returns a uniformly random action index;
+    otherwise picks uniformly at random (via `rng`) among the indices tied
+    for max(q_values).
     """
     n_actions = len(q_values)
     if rng.random() < epsilon:
@@ -173,7 +167,7 @@ def q_learning_update(
     regardless of which action the current policy would actually take next.
     If done, the bootstrap term is 0 (no next state to continue into).
 
-    TODO: implement, mutating q_table in place.
+    Mutates q_table in place.
     """
     q = q_table[state]
     if done:
@@ -201,7 +195,7 @@ def sarsa_update(
     is the key difference from q_learning_update -- do not accidentally
     reimplement Q-learning here.
 
-    TODO: implement, mutating q_table in place.
+    Mutates q_table in place.
     """
     q = q_table[state]
     if done:
@@ -232,7 +226,7 @@ def expected_sarsa_update(
     (accounting correctly for the greedy action also receiving its share of
     the epsilon/n_actions exploration mass -- don't double count or omit it).
 
-    TODO: implement, mutating q_table in place.
+    Mutates q_table in place.
     """
     q = q_table[state]
     if done:

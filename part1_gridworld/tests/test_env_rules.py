@@ -14,9 +14,8 @@ import pathlib
 
 import pytest
 
-from src.env import Action, GridWorldEnv
 from config.rewards_constants import REWARD_APPLE, REWARD_CHEST, REWARD_KEY
-
+from src.env import Action, GridWorldEnv
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -59,7 +58,7 @@ def test_rock_blocks_movement_no_crash(tmp_path):
     # Rock immediately to the right of agent start
     lp = _make_level(tmp_path, rocks=[[1, 0]])
     env = GridWorldEnv(lp)
-    state = env.reset()
+    env.reset()
     assert env._agent_pos == (0, 0)
 
     # Try to walk RIGHT into the rock

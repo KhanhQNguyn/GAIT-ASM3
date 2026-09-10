@@ -83,7 +83,7 @@ def main() -> None:
     episode = 1
     rows: list[EpisodeRecord] = []
     while episode <= args.episodes:
-        obs, _info = env.reset()
+        obs, _ = env.reset()
         if not env.render():
             break
         clock.tick(args.fps * env.speed_multiplier)
@@ -100,17 +100,17 @@ def main() -> None:
             if terminated or truncated:
                 break
             if env.consume_restart_request():
-                obs, _info = env.reset()
+                obs, _ = env.reset()
                 rec = EpisodeRecord()
                 total_reward, steps = 0.0, 0
                 continue
             if env.consume_skip_request():
                 break
 
-            action, _state = model.predict(
+            action, _ = model.predict(
                 obs, deterministic=(args.sampling == "deterministic")
             )
-            obs, reward, terminated, truncated, info = env.step(action)
+            obs, reward, terminated, truncated, info = env.step(int(action))
             if not env.render():
                 terminated = truncated = True
             clock.tick(args.fps * env.speed_multiplier)

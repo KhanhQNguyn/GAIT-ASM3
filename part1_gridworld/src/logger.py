@@ -29,10 +29,7 @@ class EpisodeLogger:
     def log_episode(
         self, episode: int, total_return: float, steps: int, died: bool, epsilon: float
     ) -> None:
-        """Append one row.
-
-        TODO: implement.
-        """
+        """Append one row."""
         self._writer.writerow({
             "episode": episode,
             "return": total_return,
@@ -42,9 +39,6 @@ class EpisodeLogger:
         })
 
     def close(self) -> None:
-        """Flush and close the underlying file.
-
-        TODO: implement.
-        """
+        """Flush and close the underlying file."""
         self._file.flush()
         self._file.close()

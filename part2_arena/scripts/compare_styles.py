@@ -88,14 +88,14 @@ def evaluate_style(
         [],
     )
     for episode_idx in range(episodes):
-        obs, _info = env.reset(seed=seed + episode_idx)
+        obs, _ = env.reset(seed=seed + episode_idx)
         terminated = truncated = False
         total_reward, steps = 0.0, 0
         ep_enemies_killed, ep_spawners_killed = 0, 0
 
         while not (terminated or truncated):
-            action, _state = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, terminated, truncated, info = env.step(int(action))
             total_reward += reward
             steps += 1
             rb = info["reward_breakdown"]

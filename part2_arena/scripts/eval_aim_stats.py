@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_episode(env: ArenaGymEnv, model, deterministic: bool) -> dict:
-    obs, _info = env.reset()
+    obs, _ = env.reset()
     player_projectiles = 0
     alignment_sum, aligned30 = 0.0, 0
     damage_dealt, damage_taken, kills, spawner_kills = 0.0, 0.0, 0, 0
