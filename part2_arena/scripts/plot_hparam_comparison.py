@@ -60,10 +60,10 @@ def latest_run(prefix: str) -> pathlib.Path | None:
 
 def default_runs(style: int, algo: str) -> list[tuple[str, str]]:
     plan = [
-        (f"style{style}_{algo}_tuned_v1_curriculum", "A  tuned_v1  (net 128, lr 2.5e-4, ent 0.005)"),
-        (f"style{style}_{algo}_tuned_v2_curriculum", "B  tuned_v2  (net 256, lr 1e-4, ent 0.02)"),
-        (f"style{style}_{algo}_tuned_v3_curriculum", "C  tuned_v3  (tuned_v1 + ent 0.008) -- shipped"),
-        (f"style{style}_{algo}_tuned_v4_curriculum", "D  tuned_v4  (tuned_v3 + gamma 0.999)"),
+        (f"style{style}_{algo}_tuned_v1_curriculum", "A  tuned_v1 (net128, lr2.5e-4, ent5e-3)"),
+        (f"style{style}_{algo}_tuned_v2_curriculum", "B  tuned_v2 (net256, lr1e-4, ent2e-2)"),
+        (f"style{style}_{algo}_tuned_v3_curriculum", "C  tuned_v3 (tuned_v1 + ent8e-3) -- shipped"),
+        (f"style{style}_{algo}_tuned_v4_curriculum", "D  tuned_v4 (tuned_v3 + gamma0.999)"),
         (f"style{style}_{algo}_tuned_v3", "C  tuned_v3, curriculum OFF"),
     ]
     out = []
@@ -110,9 +110,15 @@ def main() -> None:
             print(f"skip (missing): {log_dir}")
             continue
         steps, values = read_series(log_dir, args.tag)
-        style = "--" if "OFF" in label else "-"
-        ax.plot(steps, moving_average(values, args.smooth), style, label=label.strip(), linewidth=1.6)
-        print(f"{dir_name}: {len(steps)} pts, {steps[-1]:,} steps, final {args.tag} = {values[-1]:.1f}")
+        line_style = "--" if "OFF" in label else "-"
+        ax.plot(
+            steps, moving_average(values, args.smooth),
+            line_style, label=label.strip(), linewidth=1.6,
+        )
+        print(
+            f"{dir_name}: {len(steps)} pts, {steps[-1]:,} steps, "
+            f"final {args.tag} = {values[-1]:.1f}"
+        )
 
     ax.axvline(300_000, color="grey", linestyle=":", linewidth=1)
     ax.text(300_000, ax.get_ylim()[0], " 300k sweep budget", fontsize=8, color="grey", va="bottom")

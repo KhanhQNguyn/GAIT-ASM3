@@ -558,29 +558,43 @@ class ArenaCoreEnv:
         self._shot_toward_enemy_flag = alignment
 
     def _graded_aim_alignment(self) -> float:
-        """Graded alignment of the player's CURRENT facing with its current
-        objective (nearest in-range enemy, else nearest active spawner), in
-        [0, 1]. See _try_shoot's comment for the design rationale.
+        """Graded alignment of the player's CURRENT facing with the point it
+        should be aiming at, in [0, 1] = max(0, cos(angle error)).
+
+        Target = the nearest in-range enemy, LED by projectile flight time
+        along the enemy's current velocity (2026-09-09). Enemies re-home on
+        the player every step, so when the PLAYER is moving (kiting) an
+        enemy's path curves and a shot aimed where the enemy is now lands
+        behind it; extrapolating the enemy's instantaneous velocity for
+        ~d/projectile_speed steps corrects most of that. For a stationary
+        player the lead is purely radial (enemy comes straight in) and does
+        not change the bearing -- correctly, since you do not lead a target
+        coming straight at you. This makes "aimed" mean "will hit", which is
+        what R_AIMED_HIT_BONUS pays for. Falls back to the nearest active
+        spawner (static, no lead) when no enemy is in range.
         """
         st = self.state
         p = st.player
+        target_x = target_y = None
+
         ne = self._nearest_enemy()
         if ne is not None:
             d = distance(p.x, p.y, ne.x, ne.y)
             if d <= SHOT_NO_TARGET_RADIUS:
-                target_x, target_y = ne.x, ne.y
-                aimed_at_objective = True
-            else:
-                aimed_at_objective = False
-        else:
-            aimed_at_objective = False
-        if not aimed_at_objective and st.spawners:
+                proj_speed = float(self._pcfg["projectile_speed"])
+                lead_t = d / proj_speed if proj_speed > 0 else 0.0
+                # enemy velocity: it moves at ne.speed straight toward the player
+                chase = relative_direction(ne.x, ne.y, p.x, p.y)
+                target_x = ne.x + math.cos(chase) * ne.speed * lead_t
+                target_y = ne.y + math.sin(chase) * ne.speed * lead_t
+
+        if target_x is None and st.spawners:
             active = [s for s in st.spawners if s.active]
             if active:
                 sp = min(active, key=lambda s: distance(p.x, p.y, s.x, s.y))
                 target_x, target_y = sp.x, sp.y
-                aimed_at_objective = True
-        if not aimed_at_objective:
+
+        if target_x is None:
             return 0.0
         ang_to_target = relative_direction(p.x, p.y, target_x, target_y)
         diff = abs((ang_to_target - p.orientation + math.pi) % (2 * math.pi) - math.pi)

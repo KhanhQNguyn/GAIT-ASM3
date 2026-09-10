@@ -37,6 +37,7 @@ from arena.gym_adapter import ArenaGymEnv  # noqa: E402
 from arena.rewards_config import (  # noqa: E402
     R_DAMAGE_DEALT_PER_HP,
     R_DAMAGE_TAKEN_PER_HP,
+    R_KILL_SPAWNER,
     SHOT_NO_TARGET_RADIUS,
     WALL_PROXIMITY_MARGIN,
 )
@@ -73,9 +74,10 @@ def run_episode(env: ArenaGymEnv, model, deterministic: bool) -> dict:
     obs, _info = env.reset()
     player_projectiles = 0
     alignment_sum, aligned30 = 0.0, 0
-    damage_dealt, damage_taken, kills = 0.0, 0.0, 0
+    damage_dealt, damage_taken, kills, spawner_kills = 0.0, 0.0, 0, 0
     wall_steps, steps = 0, 0
     total_reward = 0.0
+    died = False
     terminated = truncated = False
     while not (terminated or truncated):
         prev_fired = env.core_env._shots_fired
@@ -98,6 +100,8 @@ def run_episode(env: ArenaGymEnv, model, deterministic: bool) -> dict:
         damage_dealt += rb.damage_dealt / R_DAMAGE_DEALT_PER_HP
         damage_taken += abs(rb.damage_taken) / R_DAMAGE_TAKEN_PER_HP
         kills += int(rb.kill_enemy > 0)
+        spawner_kills += round(rb.kill_spawner / R_KILL_SPAWNER)
+        died = bool(info["died"])
         ev = env.core_env._last_step_events
         if math.isfinite(ev["wall_distance"]) and ev["wall_distance"] < WALL_PROXIMITY_MARGIN:
             wall_steps += 1
@@ -110,8 +114,10 @@ def run_episode(env: ArenaGymEnv, model, deterministic: bool) -> dict:
         "dmg_dealt": damage_dealt,
         "dmg_taken": damage_taken,
         "kills": kills,
+        "sp_kills": spawner_kills,
         "wall_frac": wall_steps / steps if steps else 0.0,
         "phase": env.core_env.state.phase,
+        "died": int(died),
     }
 
 
@@ -143,14 +149,28 @@ def main() -> None:
         "dmg_dealt",
         "dmg_taken",
         "kills",
+        "sp_kills",
         "wall_frac",
         "phase",
+        "died",
     ]
-    print("  ".join(f"{k:>10}" for k in keys))
+    print("  ".join(f"{k:>9}" for k in keys))
     for r in rows:
-        print("  ".join(f"{r[k]:>10.2f}" for k in keys))
+        print("  ".join(f"{r[k]:>9.2f}" for k in keys))
     mean = {k: sum(r[k] for r in rows) / len(rows) for k in keys}
-    print("MEAN " + "  ".join(f"{mean[k]:>10.2f}" for k in keys))
+    print("MEAN " + "  ".join(f"{mean[k]:>9.2f}" for k in keys))
+    n = len(rows)
+    hit_rate = (
+        sum(r["dmg_dealt"] for r in rows) / (25.0 * sum(r["shots"] for r in rows))
+        if sum(r["shots"] for r in rows)
+        else 0.0
+    )
+    survived = sum(1 for r in rows if not r["died"])
+    print(
+        f"\nSUMMARY  death_rate={sum(r['died'] for r in rows) / n:.0%}  "
+        f"survived_to_cap={survived}/{n}  mean_phase={mean['phase']:.1f}  "
+        f"spawner_kills/ep={mean['sp_kills']:.1f}  approx_hit_rate={hit_rate:.2f}"
+    )
     print(
         f"engage_range={SHOT_NO_TARGET_RADIUS:.0f}px  "
         f"align measured against nearest enemy in range (else active spawner)"

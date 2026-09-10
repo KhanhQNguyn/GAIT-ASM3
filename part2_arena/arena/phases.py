@@ -17,10 +17,10 @@ _CONFIG_PATH = pathlib.Path(__file__).resolve().parent.parent / "config" / "aren
 # authoritative values live in that file (phase_curve / curriculum blocks).
 _DEFAULT_PHASE_CURVE = {
     "base_enemy_speed": 2.4,
-    "enemy_speed_gain_per_phase": 0.5,
+    "enemy_speed_gain_per_phase": 0.4,
     "base_spawn_interval_steps": 70,
     "spawn_interval_decay_per_phase": 12,
-    "min_spawn_interval_steps": 30,
+    "min_spawn_interval_steps": 45,
     "base_num_spawners": 1,
     "extra_spawner_every_n_phases": 2,
     "max_expected_phase": 6,

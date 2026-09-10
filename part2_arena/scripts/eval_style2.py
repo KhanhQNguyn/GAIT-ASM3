@@ -20,6 +20,7 @@ if str(_PART2_ARENA_ROOT) not in sys.path:
     sys.path.insert(0, str(_PART2_ARENA_ROOT))
 
 import pygame  # noqa: E402
+from _eval_stats import EpisodeRecord, summarise  # noqa: E402  (sibling: scripts/_eval_stats.py)
 from stable_baselines3 import DQN, PPO  # noqa: E402
 
 from arena.gym_adapter import ArenaGymEnv  # noqa: E402
@@ -80,11 +81,13 @@ def main() -> None:
     # Space pauses, '[' / ']' change playback speed, R restarts the current
     # episode, N skips to the next one (see ArenaRenderer.handle_events()).
     episode = 1
+    rows: list[EpisodeRecord] = []
     while episode <= args.episodes:
         obs, _info = env.reset()
         if not env.render():
             break
         clock.tick(args.fps * env.speed_multiplier)
+        rec = EpisodeRecord()
         total_reward, steps = 0.0, 0
         terminated = truncated = False
 
@@ -98,6 +101,7 @@ def main() -> None:
                 break
             if env.consume_restart_request():
                 obs, _info = env.reset()
+                rec = EpisodeRecord()
                 total_reward, steps = 0.0, 0
                 continue
             if env.consume_skip_request():
@@ -112,9 +116,14 @@ def main() -> None:
             clock.tick(args.fps * env.speed_multiplier)
             total_reward += reward
             steps += 1
+            rec.add_step(info["reward_breakdown"])
 
         outcome = "died" if terminated else "survived to step limit"
-        final_phase = env.core_env.state.phase if env.core_env.state is not None else None
+        final_phase = env.core_env.state.phase if env.core_env.state is not None else 0
+        rec.steps, rec.total_reward = steps, total_reward
+        rec.died, rec.truncated = bool(terminated), bool(truncated)
+        rec.final_phase = final_phase
+        rows.append(rec)
         env.show_episode_end_banner(
             {"return": total_reward, "steps": steps, "phase": final_phase, "outcome": outcome}
         )
@@ -129,6 +138,9 @@ def main() -> None:
         )
         episode += 1
 
+    summarise(
+        rows, style=CONTROL_STYLE, sampling=args.sampling, max_steps=env.core_env.max_steps
+    )
     env.close()
 
 

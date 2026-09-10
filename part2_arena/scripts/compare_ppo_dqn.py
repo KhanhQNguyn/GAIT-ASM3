@@ -7,8 +7,14 @@ The spec only requires ONE of PPO/DQN -- doing this comparison is the
 bonus, and it's a genuine ablation (identical env/reward/hyperparameter
 budget) rather than "two models for the sake of it."
 
+Each algorithm uses its OWN tuned preset from config/hyperparams.json
+(`--ppo-config` / `--dqn-config`) -- a shared `--config` would break the
+moment a PPO-only preset name (e.g. `tuned_v3`) is passed, since the DQN
+block only defines `baseline` / `tuned_v1`.
+
 Usage:
     python scripts/compare_ppo_dqn.py --style 1 --timesteps 300000
+    python scripts/compare_ppo_dqn.py --style 2 --ppo-config tuned_v3 --dqn-config tuned_v1
 """
 
 from __future__ import annotations
@@ -45,27 +51,38 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timesteps", type=int, default=300_000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
-        "--config",
+        "--ppo-config",
+        type=str,
+        default="tuned_v3",
+        help="PPO hyperparameter preset from config/hyperparams.json (default: the shipped one)",
+    )
+    parser.add_argument(
+        "--dqn-config",
         type=str,
         default="tuned_v1",
-        help="hyperparameter preset (same one, for both algos) from config/hyperparams.json",
+        help="DQN hyperparameter preset from config/hyperparams.json "
+        "(dqn block only defines: baseline | tuned_v1)",
     )
     return parser.parse_args()
 
 
 def train_both(
-    style: int, timesteps: int, seed: int, preset: str = "tuned_v1"
+    style: int,
+    timesteps: int,
+    seed: int,
+    ppo_preset: str = "tuned_v3",
+    dqn_preset: str = "tuned_v1",
 ) -> dict[str, pathlib.Path]:
     """Run train.py's build_model()/training path twice (algo="ppo" and
-    algo="dqn") with identical env/timesteps/seed/preset, returning each
-    run's TensorBoard log directory (SB3's model.logger.dir) for
-    read_tensorboard_scalars(). Reuses train.build_model() rather than
-    reimplementing training here, so this is a genuine like-for-like
-    ablation against whatever hyperparameters config/hyperparams.json's
-    [algo][preset] block actually specifies for each algorithm.
+    algo="dqn") with identical env/timesteps/seed, each algo using its OWN
+    tuned preset, returning each run's TensorBoard log directory (SB3's
+    model.logger.dir) for read_tensorboard_scalars(). Reuses
+    train.build_model() rather than reimplementing training here, so this is
+    a genuine like-for-like *budget* ablation against whatever
+    config/hyperparams.json's [algo][preset] block specifies for each.
     """
     log_dirs: dict[str, pathlib.Path] = {}
-    for algo in ("ppo", "dqn"):
+    for algo, preset in (("ppo", ppo_preset), ("dqn", dqn_preset)):
         env = Monitor(ArenaGymEnv(control_style=style))
         model = train.build_model(
             algo, env, tensorboard_log=str(LOGS_DIR), preset=preset, seed=seed
@@ -114,7 +131,9 @@ def plot_comparison(ppo_series, dqn_series, output_name: str = "ppo_vs_dqn.png")
 
 if __name__ == "__main__":
     args = parse_args()
-    log_dirs = train_both(args.style, args.timesteps, args.seed, args.config)
+    log_dirs = train_both(
+        args.style, args.timesteps, args.seed, args.ppo_config, args.dqn_config
+    )
     ppo_series = read_tensorboard_scalars(log_dirs["ppo"])
     dqn_series = read_tensorboard_scalars(log_dirs["dqn"])
     output_path = plot_comparison(ppo_series, dqn_series, f"ppo_vs_dqn_style{args.style}.png")
