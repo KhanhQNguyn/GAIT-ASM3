@@ -175,6 +175,21 @@ and one structural mechanism — `PROGRESS_REWARD_EPISODE_CAP` — are retained
   and die". R-REWARD-4 (30× `R_KILL_ENEMY`) is justified by the measured
   death-rate response, with `plot_death_penalty_ablation.py` available if a
   −100 vs −150 plot is wanted.
+- **2026-09-09 "phase-tail softening" (env, not reward):** the 09-08f agent
+  hunts spawners hard and clears ~4 phases (spec-optimal), but style 2 still
+  died ~75–100 % — always at phase 4–5, where the difficulty curve (enemy
+  speed 4.4–5.9 vs player 6.0, 30-step spawn floor × 3–4 spawners) is
+  near-unsurvivable for *any* policy, not a policy defect. `phase_curve`:
+  `min_spawn_interval_steps` 30→**45**, `enemy_speed_gain_per_phase`
+  0.5→**0.4** (phase-6 enemy 4.8 < player 6.0). Paired with **target
+  leading** in `core_env._graded_aim_alignment` so `R_AIMED_HIT_BONUS`
+  rewards shots that connect on a kiting shooter's crossing target. No
+  reward constant changed. Result (1M retrain, 25 stochastic eval eps):
+  style 2 death rate 100 % → **52 %** (12/25 survive to the step cap),
+  mean phase 4.4, 7.2 spawner kills/ep; style 1 death rate 56 % (11/25
+  survive), mean phase 4.0, 6.2 spawner kills/ep — a balanced arcade
+  profile (roughly half the episodes clear the timer at phase 4–5, half
+  die at phase 4–6 after ~25 kills and ~7 spawner kills).
 
 ### 3.3 The progression cap — considered and rejected (§5 fidelity)
 

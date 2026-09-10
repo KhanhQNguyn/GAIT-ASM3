@@ -33,11 +33,12 @@ Two things worth knowing before extending this further:
 `rewards_config.py`), any update rule (`algorithms.py`), `intrinsic.py`, `obs.py`, or any
 evaluation/comparison script.** It encodes real grading feedback from a prior submission of this
 same assignment as numbered rules (`R-ALG-*`, `R-REWARD-*`, `R-OBS-*`, `R-EVAL-*`, ...) — e.g.
-terminal transitions must not bootstrap, off-policy/on-policy targets must not blur, Part II is
-hard-capped at ≤8 reward terms (5 required + ≤2 justified/gated shaping terms), observations must
-encode perception never strategy, and single-episode "evaluation" doesn't count as evaluation.
-Section 7 has a pre-submission self-audit `grep` sequence — run it before any final commit that
-touches these areas.
+terminal transitions must not bootstrap, off-policy/on-policy targets must not blur, R-REWARD-3
+prefers ≤2 optional shaping terms (Part II ships 4 with a written justification — a known,
+documented deviation, see `rewards_config.py`'s module docstring), observations must encode
+perception never strategy, and single-episode "evaluation" doesn't count as evaluation. §7 has a
+pre-submission self-audit `grep` sequence — run it before any final commit that touches these
+areas, and cite the rule IDs a change complies with in the commit message.
 
 `docs/RUBRIC_MAP.md` maps each module/function to the exact rubric row and point value it
 satisfies. Its **"Pre-implementation fixes applied"** section lists spec-fidelity decisions baked
@@ -49,13 +50,6 @@ death (kept in sync across `config/schema.md` and `env.py`), the `QTable`
 `docs/AUDIT_main.md` is a full evidence-based audit of this branch's scaffold against the spec and
 rubric (its "open design decisions" were §5, most now resolved — see below) — still worth reading
 for the reasoning behind decisions baked into the current code.
-
-`docs/RULES.md` is **mandatory pre-flight reading before editing any reward logic, tabular update
-rule, the intrinsic tracker, the observation vector, or any eval/comparison script.** Every rule
-(`R-ALG-*`, `R-REWARD-*`, `R-OBS-*`, `R-EVAL-*`, …) maps to a real correctness bug or a graded
-"weak evidence" criticism from a previous submission of this same assignment. Its §7 is a
-pre-submission grep-based self-audit; cite rule IDs in commit messages when a change complies with
-one.
 
 `GAIT-ASM3/` is an untracked nested clone of this same repo — ignore it; work only in the
 top-level tree.
@@ -272,8 +266,11 @@ design — **do not merge these**:
   `config/arena.json`'s `phase_curve`/`curriculum` blocks.
 - **`config/arena.json`** — single source of truth for arena/player/enemy/spawner/phase-curve/
   curriculum/observation-normalization constants (mirrors Part I's `training_config.json`
-  pattern). `max_steps` is `1200` here (reduced from the `3000` module fallback specifically so a
-  ~300k-timestep run sees enough full episodes to learn — see `docs/AUDIT_main.md` 5.4).
+  pattern). `max_steps` is `1200`. Read the `_changelog_*` / `_notes` keys before touching any
+  value — the phase curve and combat constants have been through several documented rebalances
+  (latest 2026-09-09: `phase_curve.min_spawn_interval_steps` 30→45, `enemy_speed_gain_per_phase`
+  0.5→0.4, softening the phase-4+ tail so it isn't near-unsurvivable). `phases._DEFAULT_PHASE_CURVE`
+  and `core_env._DEFAULTS` mirror these as fallbacks — keep them in sync.
 - **`config/hyperparams.json`** — named PPO presets (`baseline`, `tuned_v1`..`tuned_v4`) and DQN
   presets (`baseline`, `tuned_v1`) that `scripts/train.py --config <name>` loads via
   `build_model()`. **Both control styles ship on `tuned_v3` (γ 0.995)**; `tuned_v4` (= `tuned_v3`
@@ -286,10 +283,13 @@ design — **do not merge these**:
   unlike Part I). Models → `models/`, TensorBoard logs → `logs/`.
 - **`scripts/eval_style1.py` / `eval_style2.py`** — deliberately standalone (no shared
   `--style` flag) because the rubric asks for a separate eval script per control style. Load the
-  saved model, play live with `render_mode="human"`. `--sampling` **defaults to `stochastic`**
-  (shows the full learned behaviour incl. phase progression); `deterministic` argmax can collapse
-  to a degenerate wall/spray mode, so use stochastic for the demo video. `--checkpoint best` uses
-  the EvalCallback's best-by-reward save. Their render loop
+  saved model, play live with `render_mode="human"`, print per-episode lines **and an
+  end-of-run SUMMARY** (death rate, phase reached, episode length/return, enemy+spawner kills/ep,
+  reward mix) via `scripts/_eval_stats.py` (shared by both). `--sampling` **defaults to
+  `stochastic`** (shows the full learned behaviour incl. phase progression); `deterministic`
+  argmax can collapse to a degenerate mode, so use stochastic for the demo. `--checkpoint best`
+  uses the EvalCallback's best-by-reward save. For a headless aim/survival read use
+  `scripts/eval_aim_stats.py` (also has a SUMMARY line + `died`/`sp_kills` columns). Their render loop
   checks `env.render()`'s returned bool (window-closed signal), respects `env.is_paused`
   (Space), reads `env.speed_multiplier` (`[`/`]`) for `clock.tick(fps * mult)`, and honors
   `env.consume_restart_request()`/`consume_skip_request()` (R/N) — all plumbed through
