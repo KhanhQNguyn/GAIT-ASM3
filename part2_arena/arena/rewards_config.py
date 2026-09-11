@@ -117,6 +117,83 @@ while the world is kept hostile (max_concurrent_enemies back to 18) so
 camping still gets the player swarmed and killed. A scale change to an
 already-required spec term (damage taken), not a new shaping term."""
 
+DENSITY_DAMAGE_SCALE: float = 0.3
+"""Multiplier on R_DAMAGE_TAKEN_PER_HP that scales with real-time crowding:
+effective_damage_taken_per_hp = R_DAMAGE_TAKEN_PER_HP
+                                 * (1 + DENSITY_DAMAGE_SCALE * num_active_enemies_frac)
+where num_active_enemies_frac = live enemies / enemy.max_concurrent_enemies,
+AFTER the step (same normalisation as the observation feature of the same
+name). 1.0x in an empty arena (unchanged behaviour); up to 1.3x at maximum
+concurrent enemies, i.e. -0.7/HP -> -0.91/HP at full density.
+
+DECISION (2026-09-11, DIAGNOSE_PART2_REGRESSION.md follow-up): a per-phase
+behavioural breakdown of the then-canonical tuned_v3 checkpoints (both
+control styles, stochastic sampling) showed damage-taken RATE (per 100
+in-phase steps) PEAKING at phase 3-4 -- exactly where 7-8 of ~16-20 episodes
+ended in death -- rather than falling as the arena got more dangerous, while
+spawner-kill rate fell off across the same phases purely from spawners
+being harder to reach in a denser crowd, not from any deliberate pull-back.
+R_DAMAGE_TAKEN_PER_HP was flat regardless of phase, so the marginal cost of
+continuing to fight in a swarm never rose to match the marginal risk.
+
+Scales an already-required spec term (damage taken) rather than adding a
+5th active shaping term (docs/RULES.md R-REWARD-3 is already strained at 4).
+Scales R_DAMAGE_TAKEN_PER_HP, not R_DEATH, because damage is the ongoing
+per-step signal the agent can act on throughout a dangerous phase --
+scaling the one-off terminal R_DEATH instead would not change the
+moment-to-moment incentive to keep fighting in a crowd. Uses real-time
+density (num_active_enemies_frac) rather than phase number because it is
+the direct instantaneous threat signal (already a normalised observation
+feature) rather than a coarse once-per-phase proxy.
+
+First test at 0.3 (max 1.3x, -0.91/HP), retrained both styles at the
+canonical config/seed (see the sweep in DIAGNOSE_PART2_REGRESSION.md's
+follow-up), same seed as the pre-change checkpoint so this constant was the
+ONLY variable:
+  Style 2: unambiguous win on every axis -- stochastic return 313.9 -> 363.8,
+    phase reached 3.85 -> 4.20, spawner-kills 6.70 -> 7.55, death rate
+    unchanged at 60%, det-stoch gap -375 -> -280, and the phase-3
+    damage-taken-rate spike that motivated this constant fell 14.90 -> 5.38
+    per 100 in-phase steps. Kept for style 2.
+  Style 1: real trade-off, not a clean win -- death rate fell 80% -> 55% and
+    the phase-3 damage spike fell 11.33 -> 7.19, but return fell
+    279.7 -> 169.3, phase reached 3.75 -> 3.20, and spawner-kills
+    6.20 -> 4.90 (the per-phase table showed spawner-kill rate falling off
+    steeper post-phase-2 than the flat-reward baseline -- backing off
+    spawner-hunting sooner, not just surviving longer). 0.3 was too strong
+    for style 1's aggression-prioritised objective.
+
+Tested lowering 0.3 -> 0.15 (half the density penalty, max 1.15x /
+-0.805/HP), same seed per style again so this was the only variable:
+  Style 1: NOT a gentler interpolation of 0.3 -- a different policy basin.
+    Stochastic return 171.6 -> 374.2 (higher than even the flat baseline)
+    and death rate 55% -> 30% (best of all three), but spawner-kills
+    4.90 -> 4.50 (WORSE than 0.3, not better) and phase reached 3.20 -> 3.10
+    -- the policy shifted toward killing more enemies (13.70 -> 29.25) and
+    defending rather than recovering spawner aggression, and its
+    deterministic/stochastic gap got worse (-115 -> -239), not better.
+  Style 2: 0.15 undershot 0.3 on every axis (return 365.3 -> 174.7, phase
+    4.20 -> 3.25, spawner-kills 7.55 -> 5.35) -- 0.3 was already close to
+    this seed's local optimum for style 2.
+Lesson: with an identical seed (env layout stream + net init) across all
+three runs per style, the differences are attributable to this constant
+alone, not training noise -- a modest reward-constant change can land PPO
+in a qualitatively different policy basin rather than smoothly
+interpolating behaviour. Do not assume intermediate values behave
+predictably from the two endpoints; each value is its own experiment.
+
+FINAL (2026-09-11): shipped at 0.3 for BOTH control styles, chosen over
+0.15 for style 1 despite 0.15's higher single-seed return, because (a) the
+user's priority for style 1 is spawner-clearing aggression, on which 0.3
+beats 0.15, and (b) using one value for both styles keeps the two control
+styles' results directly comparable, which the report needs. Style 1's
+shipped checkpoint was picked from a 3-seed sweep at 0.3 (not just the one
+seed tested above) using the same multi-axis rule as the earlier seed
+sweep -- return, survival, phases, enemies, spawners, and the
+deterministic/stochastic gap together, never return alone; see
+report/figures/part2/ and this file's git history for that sweep's
+numbers and which seed was kept."""
+
 R_DEATH: float = -150.0
 """The spec's "strong negative reward on death" term -- one-off, on top of
 R_DAMAGE_TAKEN_PER_HP for the killing blow.

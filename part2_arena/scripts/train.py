@@ -33,6 +33,7 @@ if str(_PART2_ARENA_ROOT) not in sys.path:
     sys.path.insert(0, str(_PART2_ARENA_ROOT))
 
 import numpy as np  # noqa: E402
+import torch as th  # noqa: E402
 from callbacks import RewardTermLoggingCallback  # noqa: E402  (sibling: scripts/callbacks.py)
 from stable_baselines3 import DQN, PPO  # noqa: E402
 from stable_baselines3.common.callbacks import CallbackList, EvalCallback  # noqa: E402
@@ -187,6 +188,10 @@ def main() -> None:
     random.seed(args.seed)
     np.random.seed(args.seed)
     set_random_seed(args.seed)
+    # PyTorch CPU ops can still introduce small run-to-run drift under a fixed
+    # RNG seed; ask for deterministic kernels where they exist (warn_only so a
+    # missing deterministic impl degrades to a warning, never a hard failure).
+    th.use_deterministic_algorithms(True, warn_only=True)
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -210,6 +215,15 @@ def main() -> None:
             reward_overrides=reward_overrides,
         )
     )
+    # Pin the layout-RNG stream to args.seed. ArenaCoreEnv.reset() re-seeds only
+    # on an explicit seed and otherwise ADVANCES the existing RNG, so this one
+    # call makes every later (unseeded) episode reset during training a
+    # deterministic function of args.seed. Without it SB3 seeds only the first
+    # episode and the rest draw fresh OS entropy -- which is why repeated
+    # `--seed 0` runs used to diverge. Same seed -> same layout stream;
+    # different seed -> a different but equally reproducible stream. Layouts
+    # still vary from episode to episode within a run.
+    env.reset(seed=args.seed)
     model = build_model(
         args.algo, env, tensorboard_log=str(LOGS_DIR), preset=args.config, seed=args.seed
     )
@@ -229,6 +243,11 @@ def main() -> None:
             reward_overrides=reward_overrides,
         )
     )
+    # EvalCallback never seeds its env, so pin the eval layout stream too (a
+    # separate offset so eval episodes aren't a replay of the first training
+    # ones). This makes the best-by-eval-reward checkpoint selection
+    # reproducible for a given args.seed.
+    eval_env.reset(seed=args.seed + 10_000)
     eval_callback = EvalCallback(
         eval_env,
         best_model_save_path=str(save_path) + "_best",

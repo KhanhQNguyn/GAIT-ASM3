@@ -182,12 +182,29 @@ class ArenaCoreEnv:
         manoeuvre in every direction, neither control style advantaged);
         phase-0 spawners are placed at RANDOM points inside the spawn margins
         (rejection-sampled to keep a minimum distance from the player's
-        centre start), using the RNG seeded by `seed` -- pass the same seed
-        to get the identical layout back (Gymnasium determinism contract,
-        exercised by the env_checker tests); leave it None for fresh layouts
-        every episode, which is what training wants for variety.
+        centre start).
+
+        Layout-RNG / determinism:
+          * ``reset(seed=X)`` with X not None re-seeds the layout RNG to X, so
+            the same X always reproduces the same layout (the Gymnasium
+            determinism contract, exercised by the env_checker tests; also how
+            the eval/comparison scripts pin per-episode layouts).
+          * ``reset()`` with no seed KEEPS the existing layout RNG and lets it
+            advance -- a different layout each episode that is still a
+            deterministic function of the last explicit seed. SB3 only seeds
+            the first episode of a run, so this is what makes a whole
+            ``--seed N`` training run reproducible while episodes stay varied.
+          * ``reset()`` with no seed and no RNG yet (a fresh env that is never
+            seeded at all, e.g. ad-hoc interactive use) falls back to an
+            entropy-seeded RNG: fresh layouts every process.
         """
-        self._rng = random.Random(seed)
+        if seed is not None:
+            self._rng = random.Random(seed)
+        elif getattr(self, "_rng", None) is None:
+            self._rng = random.Random()
+        # else: no seed given but a generator already exists -> keep advancing
+        # it, so the per-episode layout stream stays a deterministic function
+        # of the run's initial seed.
         self.phase_manager.phase = 0
         player = Player(
             x=self.arena_width / 2.0,
@@ -256,6 +273,10 @@ class ArenaCoreEnv:
                 "shot_fired_with_no_target":       bool,   # player fired while the nearest
                                                            #   enemy was farther than
                                                            #   SHOT_NO_TARGET_RADIUS (or none)
+                "num_active_enemies_frac":         float,  # live enemies / max_concurrent_
+                                                           #   enemies, AFTER this step,
+                                                           #   in [0, 1] -- feeds
+                                                           #   DENSITY_DAMAGE_SCALE
             }
 
         Plus OPTIONAL keys feeding compute_reward's per-episode caps (see
@@ -297,6 +318,13 @@ class ArenaCoreEnv:
         ev["damage_taken"] = dmg_taken
         ev["damage_dealt"] = dmg_dealt
         ev["aimed_hit_alignment_sum"] = aimed_hit_sum
+        # Real-time crowding, AFTER this step's spawns/deaths -- feeds
+        # DENSITY_DAMAGE_SCALE (rewards_config.py) so a hit taken while
+        # swarmed costs more than the identical hit in an empty arena. Same
+        # normalisation as the num_active_enemies_frac observation feature.
+        ev["num_active_enemies_frac"] = len(st.enemies) / max(
+            1, int(self._ecfg["max_concurrent_enemies"])
+        )
 
         new_nearest = self._nearest_enemy_distance()
         if prev_nearest is not None and new_nearest is not None:
@@ -393,6 +421,7 @@ class ArenaCoreEnv:
             "wall_distance": float("inf"),
             "wall_distance_second": float("inf"),
             "aimed_hit_alignment_sum": 0.0,
+            "num_active_enemies_frac": 0.0,
         }
 
     def _nearest_enemy_distance(self) -> float | None:

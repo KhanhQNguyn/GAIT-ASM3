@@ -34,6 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from arena.rewards_config import (
+    DENSITY_DAMAGE_SCALE,
     R_AIMED_HIT_BONUS,
     R_APPROACH_NEAREST_ENEMY,
     R_DAMAGE_DEALT_PER_HP,
@@ -152,6 +153,10 @@ def compute_reward(
                                                        #   farther than
                                                        #   SHOT_NO_TARGET_RADIUS (or
                                                        #   no enemy existed)
+            "num_active_enemies_frac":         float,  # live enemies / max_concurrent_
+                                                       #   enemies, AFTER this step, in
+                                                       #   [0, 1] -- scales damage_taken
+                                                       #   via DENSITY_DAMAGE_SCALE
             "shot_toward_enemy":               float,  # GRADED (2026-09-08) alignment
                                                        #   of the shot fired this step
                                                        #   with its objective, in
@@ -217,7 +222,12 @@ def compute_reward(
          When re-enabled to a finite value, kill_spawner + phase_progress --
          never kill_enemy -- scale down together so the episode running total
          never exceeds it; FIX_PART2.md / BUG_LESS_ATTACK.md.)
-        damage_taken            = R_DAMAGE_TAKEN_PER_HP  * damage_taken  (already negative)
+        damage_taken            = R_DAMAGE_TAKEN_PER_HP
+                                  * (1 + DENSITY_DAMAGE_SCALE * num_active_enemies_frac)
+                                  * damage_taken  (already negative; the density
+                                  multiplier is 1.0 in an empty arena and grows to
+                                  1 + DENSITY_DAMAGE_SCALE at max concurrent enemies --
+                                  see that constant's docstring)
         damage_dealt            = R_DAMAGE_DEALT_PER_HP  * damage_dealt
         death                  = R_DEATH                 * died
         approach_nearest_enemy = R_APPROACH_NEAREST_ENEMY * max(-distance_delta, 0),
@@ -257,6 +267,11 @@ def compute_reward(
     overrides = reward_overrides or {}
     r_death = float(overrides.get("R_DEATH", R_DEATH))
     r_wall = float(overrides.get("R_WALL_PROXIMITY_PER_STEP", R_WALL_PROXIMITY_PER_STEP))
+    # 1.0 in an empty arena (unchanged behaviour); grows toward
+    # 1 + DENSITY_DAMAGE_SCALE as the arena fills up -- see that constant's
+    # docstring in rewards_config.py.
+    density_frac = float(ev.get("num_active_enemies_frac", 0.0))
+    damage_density_multiplier = 1.0 + DENSITY_DAMAGE_SCALE * density_frac
     delta = float(ev.get("distance_delta_to_nearest_enemy", 0.0))
     nearest_enemy_distance = float(ev.get("nearest_enemy_distance", float("inf")))
     cumulative_approach_reward = float(ev.get("cumulative_approach_reward", 0.0))
@@ -289,7 +304,9 @@ def compute_reward(
         kill_enemy=kill_enemy,
         kill_spawner=kill_spawner,
         phase_progress=phase_progress,
-        damage_taken=R_DAMAGE_TAKEN_PER_HP * float(ev.get("damage_taken", 0.0)),
+        damage_taken=(
+            R_DAMAGE_TAKEN_PER_HP * damage_density_multiplier * float(ev.get("damage_taken", 0.0))
+        ),
         damage_dealt=R_DAMAGE_DEALT_PER_HP * float(ev.get("damage_dealt", 0.0)),
         death=r_death * (1.0 if ev.get("died") else 0.0),
         approach_nearest_enemy=approach_nearest_enemy,

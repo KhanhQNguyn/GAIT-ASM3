@@ -6,6 +6,12 @@ task, not a video-recording pass) for an equal number of episodes under
 matching seeds, and records: average return, average survival time
 (steps), average phases reached, and average enemies+spawners destroyed.
 
+Each style is evaluated under BOTH action-selection modes: `deterministic`
+(argmax -- can collapse a stochastic policy into a degenerate mode) and
+`stochastic` (samples the policy, i.e. how it was trained and how the demo
+runs). Reporting only the deterministic pass once made a same-config
+re-seed look like a cross-the-board regression; both are reported now.
+
 Enemies/spawners destroyed are derived from info["reward_breakdown"]
 (kill_enemy / kill_spawner reward contributions divided by the per-kill
 constants) rather than a separate counter, since RewardBreakdown is
@@ -40,6 +46,7 @@ if str(_PART2_ARENA_ROOT) not in sys.path:
     sys.path.insert(0, str(_PART2_ARENA_ROOT))
 
 from stable_baselines3 import DQN, PPO  # noqa: E402
+from stable_baselines3.common.utils import set_random_seed  # noqa: E402
 
 from arena.gym_adapter import ArenaGymEnv  # noqa: E402
 from arena.rewards_config import R_KILL_ENEMY, R_KILL_SPAWNER  # noqa: E402
@@ -71,8 +78,19 @@ def parse_args() -> argparse.Namespace:
 
 
 def evaluate_style(
-    style: int, algo: str, config: str, curriculum: str, episodes: int, seed: int
+    style: int,
+    algo: str,
+    config: str,
+    curriculum: str,
+    episodes: int,
+    seed: int,
+    deterministic: bool,
 ) -> dict:
+    # Seed python/numpy/torch so the stochastic pass's action sampling is
+    # reproducible run-to-run (the env layout is already pinned per episode
+    # via reset(seed=...)). No effect on the deterministic pass.
+    set_random_seed(seed)
+
     suffix = "_curriculum" if curriculum == "on" else ""
     model_path = MODELS_DIR / f"style{style}_{algo}_{config}{suffix}"
     model_cls = PPO if algo == "ppo" else DQN
@@ -94,7 +112,7 @@ def evaluate_style(
         ep_enemies_killed, ep_spawners_killed = 0, 0
 
         while not (terminated or truncated):
-            action, _ = model.predict(obs, deterministic=True)
+            action, _ = model.predict(obs, deterministic=deterministic)
             obs, reward, terminated, truncated, info = env.step(int(action))
             total_reward += reward
             steps += 1
@@ -116,6 +134,7 @@ def evaluate_style(
     n = len(returns)
     return {
         "style": style,
+        "sampling": "deterministic" if deterministic else "stochastic",
         "episodes": n,
         "avg_return": sum(returns) / n,
         "avg_survival_steps": sum(survival_steps) / n,
@@ -127,14 +146,15 @@ def evaluate_style(
 
 def render_markdown_table(rows: list[dict]) -> str:
     header = (
-        "| Style | Episodes | Avg return | Avg survival (steps) | "
+        "| Style | Sampling | Episodes | Avg return | Avg survival (steps) | "
         "Avg phases reached | Avg enemies destroyed | Avg spawners destroyed |"
     )
-    sep = "|---|---|---|---|---|---|---|"
+    sep = "|---|---|---|---|---|---|---|---|"
     lines = [header, sep]
     for row in rows:
         lines.append(
-            f"| {row['style']} | {row['episodes']} | {row['avg_return']:.2f} | "
+            f"| {row['style']} | {row['sampling']} | {row['episodes']} | "
+            f"{row['avg_return']:.2f} | "
             f"{row['avg_survival_steps']:.1f} | {row['avg_phases_reached']:.2f} | "
             f"{row['avg_enemies_destroyed']:.2f} | {row['avg_spawners_destroyed']:.2f} |"
         )
@@ -144,8 +164,11 @@ def render_markdown_table(rows: list[dict]) -> str:
 def main() -> None:
     args = parse_args()
     rows = [
-        evaluate_style(style, args.algo, args.config, args.curriculum, args.episodes, args.seed)
+        evaluate_style(
+            style, args.algo, args.config, args.curriculum, args.episodes, args.seed, deterministic
+        )
         for style in (1, 2)
+        for deterministic in (True, False)
     ]
     table = render_markdown_table(rows)
 
@@ -153,7 +176,8 @@ def main() -> None:
     out_path = FIGURES_DIR / "style1_vs_style2_comparison.md"
     out_path.write_text(
         f"# Style 1 vs Style 2 comparison ({args.algo}, {args.config}, "
-        f"curriculum={args.curriculum}, {args.episodes} episodes each, seed={args.seed})\n\n"
+        f"curriculum={args.curriculum}, {args.episodes} episodes each, seed={args.seed}; "
+        f"deterministic + stochastic action-selection passes)\n\n"
         + table
         + "\n*Enemies destroyed = via player projectile only (see this script's module "
         "docstring) -- an enemy destroyed by touching the player is not counted here.*\n",

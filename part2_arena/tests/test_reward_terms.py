@@ -16,6 +16,7 @@ from arena.rewards import (
     compute_reward,
 )
 from arena.rewards_config import (
+    DENSITY_DAMAGE_SCALE,
     R_AIMED_HIT_BONUS,
     R_APPROACH_NEAREST_ENEMY,
     R_DAMAGE_DEALT_PER_HP,
@@ -99,6 +100,34 @@ def test_damage_economy_makes_tanking_hits_unprofitable():
     # a full bar of damage must sting far more than a single kill pays, so
     # the agent cannot shrug off sustained contact while farming kills
     assert abs(full_bar.damage_taken) >= 10 * R_KILL_ENEMY
+
+
+def test_density_damage_scale_is_a_noop_in_an_empty_arena():
+    """DECISION (2026-09-11, DENSITY_DAMAGE_SCALE): an empty arena
+    (num_active_enemies_frac omitted, defaulting to 0.0 -- or explicitly
+    0.0) must reproduce the flat pre-existing damage_taken value exactly,
+    so early-phase/low-density behaviour is provably unchanged by this
+    constant.
+    """
+    omitted = compute_reward({"damage_taken": 40.0})
+    explicit_zero = compute_reward({"damage_taken": 40.0, "num_active_enemies_frac": 0.0})
+    flat = R_DAMAGE_TAKEN_PER_HP * 40.0
+    assert omitted.damage_taken == pytest.approx(flat)
+    assert explicit_zero.damage_taken == pytest.approx(flat)
+
+
+def test_density_damage_scale_scales_up_with_crowding():
+    """At maximum crowding (num_active_enemies_frac=1.0) the same damage
+    event costs (1 + DENSITY_DAMAGE_SCALE)x the flat per-HP rate -- i.e.
+    identical damage is more expensive while swarmed than in an empty
+    arena, the whole point of the constant (see its rewards_config.py
+    docstring for the diagnosis this responds to).
+    """
+    empty = compute_reward({"damage_taken": 40.0, "num_active_enemies_frac": 0.0})
+    swarmed = compute_reward({"damage_taken": 40.0, "num_active_enemies_frac": 1.0})
+    expected = R_DAMAGE_TAKEN_PER_HP * (1.0 + DENSITY_DAMAGE_SCALE) * 40.0
+    assert swarmed.damage_taken == pytest.approx(expected)
+    assert abs(swarmed.damage_taken) > abs(empty.damage_taken)
 
 
 def test_progression_rewards_are_uncapped():
@@ -499,6 +528,7 @@ def test_contact_enemy_persists_cooldowns_and_gives_no_kill_credit():
     p = env.state.player
     contact_damage = float(env._ecfg["contact_damage"])
     max_health = float(env._pcfg["max_health"])
+    max_concurrent_enemies = float(env._ecfg["max_concurrent_enemies"])
     enemy = Enemy(x=p.x, y=p.y, health=30.0, max_health=30.0, speed=0.0)
     env.state.enemies = [enemy]
 
@@ -507,7 +537,13 @@ def test_contact_enemy_persists_cooldowns_and_gives_no_kill_credit():
     rb = info["reward_breakdown"]
     assert rb.kill_enemy == 0.0  # NO kill credit for contact
     assert rb.damage_dealt == 0.0  # the player's projectiles did nothing
-    assert rb.damage_taken == pytest.approx(R_DAMAGE_TAKEN_PER_HP * contact_damage)
+    # DENSITY_DAMAGE_SCALE multiplies the flat per-HP cost by the (still
+    # low, 1-enemy) crowding after this step -- see rewards_config.py.
+    density_frac = 1.0 / max_concurrent_enemies
+    density_multiplier = 1.0 + DENSITY_DAMAGE_SCALE * density_frac
+    assert rb.damage_taken == pytest.approx(
+        R_DAMAGE_TAKEN_PER_HP * density_multiplier * contact_damage
+    )
     assert len(env.state.enemies) == 1  # the enemy persists (non-kamikaze)
     assert enemy.damage_cooldown == int(env._ecfg["contact_damage_cooldown_steps"])
     assert p.health == pytest.approx(max_health - contact_damage)
